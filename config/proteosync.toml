@@ -1,0 +1,7 @@
+[project]
+name = "proteosync"
+version = "0.1.0"
+
+[paths]
+raw = "artifacts/structures/raw"
+std = "artifacts/structures/std"
