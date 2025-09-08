@@ -12,6 +12,7 @@ REPO_ROOT = _find_repo_root(Path(__file__).resolve())
 ARTIFACTS_DIR = REPO_ROOT / "artifacts"
 RAW_DIR = ARTIFACTS_DIR / "structures" / "raw"
 STD_DIR = ARTIFACTS_DIR / "structures" / "std"
+POCKETS_DIR = ARTIFACTS_DIR / "pockets"
 
-for d in (ARTIFACTS_DIR, RAW_DIR, STD_DIR):
+for d in (ARTIFACTS_DIR, RAW_DIR, STD_DIR, POCKETS_DIR):
     d.mkdir(parents=True, exist_ok=True)
