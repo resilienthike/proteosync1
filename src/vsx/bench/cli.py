@@ -1,5 +1,6 @@
 from __future__ import annotations
 import argparse, json
+from pathlib import Path
 from vsx.utils.paths import REPO_ROOT, RAW_DIR, STD_DIR
 from vsx.utils.config import load_config
 
@@ -8,6 +9,7 @@ def main() -> None:
     p.add_argument("--version", action="store_true")
     p.add_argument("--show-paths", dest="show_paths", action="store_true")
     p.add_argument("--show-config", dest="show_config", action="store_true")
+    p.add_argument("--status", action="store_true")
     args = p.parse_args()
     if args.version:
         print("proteosync 0.1.0"); return
@@ -19,6 +21,12 @@ def main() -> None:
     if args.show_config:
         cfg = load_config()
         print(json.dumps(cfg, indent=2))
+        return
+    if args.status:
+        raw = list(Path(RAW_DIR).glob("*"))
+        std = list(Path(STD_DIR).glob("*"))
+        print(f"raw_files={len(raw)}")
+        print(f"std_files={len(std)}")
         return
     print("OK")
 
