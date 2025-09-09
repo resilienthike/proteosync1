@@ -1,20 +1,30 @@
 from __future__ import annotations
-import json
-import typer
+import json, typer
 from vsx import __version__
 from vsx.utils.paths import REPO_ROOT, RAW_DIR, STD_DIR, POCKETS_DIR
 from vsx.utils.settings import load_settings
 from vsx.utils.logging import setup_logging
+
 from vsx.feats.pocket_def import init_pocket_file, validate_pocket
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 
-@app.callback()
-def _root(version: bool = typer.Option(False, "--version", help="show version and exit")):
+@app.callback(invoke_without_command=True)
+def _root(ctx: typer.Context,
+          version: bool = typer.Option(False, "--version", help="show version and exit")):
     setup_logging()
     if version:
         typer.echo(f"proteosync {__version__}")
-        raise typer.Exit(0)
+        raise typer.Exit()
+    # if no subcommand, show help (prevents 'Missing command')
+    if ctx.invoked_subcommand is None:
+        typer.echo(ctx.get_help())
+        raise typer.Exit()
+
+@app.command()
+def version():
+    """Print version."""
+    typer.echo(f"proteosync {__version__}")
 
 @app.command()
 def status():
