@@ -3,8 +3,10 @@ from pathlib import Path
 from typing import List, Tuple
 from vsx.utils.paths import POCKETS_DIR
 
+
 def pocket_file_path(target: str, name: str) -> Path:
     return POCKETS_DIR / f"{target}_{name}_pocket.tsv"
+
 
 def init_pocket_file(target: str, name: str, overwrite: bool = False) -> Path:
     p = pocket_file_path(target, name)
@@ -13,6 +15,7 @@ def init_pocket_file(target: str, name: str, overwrite: bool = False) -> Path:
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text("# Pocket residues\n# CHAIN\tRESID\n")
     return p
+
 
 def load_pocket_residues(target: str, name: str) -> List[Tuple[str, int]]:
     p = pocket_file_path(target, name)
@@ -27,6 +30,7 @@ def load_pocket_residues(target: str, name: str) -> List[Tuple[str, int]]:
             continue
         out.append((parts[0], int(parts[1])))
     return out
+
 
 def validate_pocket(target: str, name: str) -> str:
     residues = load_pocket_residues(target, name)

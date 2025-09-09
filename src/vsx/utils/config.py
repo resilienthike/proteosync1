@@ -8,6 +8,7 @@ DEFAULT_CFG: dict = {
     "paths": {"raw": "artifacts/structures/raw", "std": "artifacts/structures/std"},
 }
 
+
 def _deep_merge(a: dict, b: dict) -> dict:
     out = dict(a)
     for k, v in b.items():
@@ -16,6 +17,7 @@ def _deep_merge(a: dict, b: dict) -> dict:
         else:
             out[k] = v
     return out
+
 
 def load_config(path: str | None = None) -> dict:
     cfg = DEFAULT_CFG

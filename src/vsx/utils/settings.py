@@ -5,9 +5,11 @@ from pydantic import BaseModel, Field
 import yaml
 from .paths import REPO_ROOT, ARTIFACTS_DIR, RAW_DIR, STD_DIR, POCKETS_DIR
 
+
 class Project(BaseModel):
     name: str = "proteosync"
     version: str = "0.1.0"
+
 
 class Paths(BaseModel):
     artifacts: Path = ARTIFACTS_DIR
@@ -15,13 +17,16 @@ class Paths(BaseModel):
     std: Path = STD_DIR
     pockets: Path = POCKETS_DIR
 
+
 class Run(BaseModel):
     log_level: str = "INFO"
+
 
 class Settings(BaseModel):
     project: Project = Field(default_factory=Project)
     paths: Paths = Field(default_factory=Paths)
     run: Run = Field(default_factory=Run)
+
 
 def load_settings(path: Optional[str] = None) -> Settings:
     cfg_path = Path(path) if path else (REPO_ROOT / "config" / "proteosync.yaml")

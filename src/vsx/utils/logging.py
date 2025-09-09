@@ -2,9 +2,9 @@ from __future__ import annotations
 import logging
 from logging.handlers import RotatingFileHandler
 from rich.logging import RichHandler
-from pathlib import Path
 from .paths import ARTIFACTS_DIR
 from .settings import load_settings
+
 
 def setup_logging(level: str | None = None) -> logging.Logger:
     cfg = load_settings()
@@ -17,8 +17,12 @@ def setup_logging(level: str | None = None) -> logging.Logger:
 
     log_dir = ARTIFACTS_DIR / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
-    file_handler = RotatingFileHandler(log_dir / "proteosync.log", maxBytes=1_000_000, backupCount=5)
-    file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    file_handler = RotatingFileHandler(
+        log_dir / "proteosync.log", maxBytes=1_000_000, backupCount=5
+    )
+    file_handler.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    )
     file_handler.setLevel(lvl)
 
     console = RichHandler(rich_tracebacks=True, markup=True)
