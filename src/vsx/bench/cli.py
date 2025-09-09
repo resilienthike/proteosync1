@@ -1,42 +1,50 @@
 from __future__ import annotations
-import argparse, json
-from pathlib import Path
-from vsx.utils.paths import REPO_ROOT, RAW_DIR, STD_DIR
-from vsx.utils.config import load_config
+import json
+import typer
+from vsx import __version__
+from vsx.utils.paths import REPO_ROOT, RAW_DIR, STD_DIR, POCKETS_DIR
+from vsx.utils.settings import load_settings
+from vsx.utils.logging import setup_logging
 from vsx.feats.pocket_def import init_pocket_file, validate_pocket
 
-def main() -> None:
-    p = argparse.ArgumentParser(description="Proteosync CLI")
-    p.add_argument("--version", action="store_true")
-    p.add_argument("--show-paths", dest="show_paths", action="store_true")
-    p.add_argument("--show-config", dest="show_config", action="store_true")
-    p.add_argument("--status", action="store_true")
-    p.add_argument("--list-raw", action="store_true")
-    p.add_argument("--list-std", action="store_true")
-    p.add_argument("--init-pocket", metavar="TARGET:NAME")
-    p.add_argument("--validate-pocket", metavar="TARGET:NAME")
-    args = p.parse_args()
+app = typer.Typer(no_args_is_help=True, add_completion=False)
 
-    if args.version:
-        print("proteosync 0.1.0"); return
-    if args.show_paths:
-        print(f"REPO_ROOT={REPO_ROOT}"); print(f"RAW_DIR={RAW_DIR}"); print(f"STD_DIR={STD_DIR}"); return
-    if args.show_config:
-        print(json.dumps(load_config(), indent=2)); return
-    if args.status:
-        raw = list(Path(RAW_DIR).glob("*")); std = list(Path(STD_DIR).glob("*"))
-        print(f"raw_files={len(raw)}"); print(f"std_files={len(std)}"); return
-    if args.list_raw:
-        for fp in sorted(Path(RAW_DIR).glob("*")): print(fp.name); return
-    if args.list_std:
-        for fp in sorted(Path(STD_DIR).glob("*")): print(fp.name); return
-    if args.init_pocket:
-        target, name = args.init_pocket.split(":", 1)
-        print(init_pocket_file(target, name, overwrite=False)); return
-    if args.validate_pocket:
-        target, name = args.validate_pocket.split(":", 1)
-        print(validate_pocket(target, name)); return
-    print("OK")
+@app.callback()
+def _root(version: bool = typer.Option(False, "--version", help="show version and exit")):
+    setup_logging()
+    if version:
+        typer.echo(f"proteosync {__version__}")
+        raise typer.Exit(0)
+
+@app.command()
+def status():
+    raw = list(RAW_DIR.glob("*"))
+    std = list(STD_DIR.glob("*"))
+    typer.echo(f"raw_files={len(raw)}")
+    typer.echo(f"std_files={len(std)}")
+
+@app.command()
+def paths():
+    typer.echo(f"REPO_ROOT={REPO_ROOT}")
+    typer.echo(f"RAW_DIR={RAW_DIR}")
+    typer.echo(f"STD_DIR={STD_DIR}")
+    typer.echo(f"POCKETS_DIR={POCKETS_DIR}")
+
+@app.command("show-config")
+def show_config():
+    cfg = load_settings().model_dump()
+    typer.echo(json.dumps(cfg, indent=2, default=str))
+
+@app.command("init-pocket")
+def init_pocket(spec: str):
+    target, name = spec.split(":", 1)
+    p = init_pocket_file(target, name, overwrite=False)
+    typer.echo(str(p))
+
+@app.command("validate-pocket")
+def validate_pocket_cmd(spec: str):
+    target, name = spec.split(":", 1)
+    typer.echo(validate_pocket(target, name))
 
 if __name__ == "__main__":
-    main()
+    app()

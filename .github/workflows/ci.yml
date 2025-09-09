@@ -9,7 +9,7 @@ jobs:
         with:
           python-version: '3.11'
       - run: python -m pip install -U pip
-      - run: pip install -e . pytest black ruff numpy scipy pandas biopython scikit-learn tqdm matplotlib
+      - run: pip install -e . pytest black ruff numpy scipy pandas biopython scikit-learn tqdm matplotlib typer pydantic pyyaml rich
       - run: ruff check .
       - run: black --check src tests
       - run: pytest -q
