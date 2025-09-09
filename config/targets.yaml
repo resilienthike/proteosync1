@@ -1,0 +1,5 @@
+targets:
+  GLP1R:
+    uniprot: P43220
+    sequence: ''
+    ligand_smiles: ''
