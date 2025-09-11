@@ -1,5 +1,0 @@
-targets:
-  GLP1R:
-    uniprot: "P43220"
-    sequence: ""        # leave blank to auto-fetch from UniProt
-    ligand_smiles: ""   # optional; fill if you have it
