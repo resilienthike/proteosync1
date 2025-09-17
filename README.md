@@ -33,9 +33,16 @@ The project is structured around a central library `vsx` found in the `src/` dir
 
 ### How It Works: A Typical Workflow
 
+
 1.  **Configuration**: A user defines a new protein target in `config/targets.yaml`, specifying its name and any relevant metadata like a UniProt ID.
 2.  **Input Structure**: A seed structure for the target is placed in `artifacts/data/<target_name>/seed_structure.pdb`.
 3.  **Simulation Preparation**: The user runs the simulation preparation script (e.g., via the CLI or directly). The `prepare_simulation` module reads the seed structure, cleans it, builds the simulation environment (membrane, water, ions), and saves the prepared system in the `artifacts/md/<target_name>/` directory.
-4.  **Analysis**: Once simulations are run, other modules (not yet fully implemented, e.g., `msm`, `ml`) can be used to analyze the trajectories to characterize cryptic pockets and other allosteric features.
+4.  **Running a Simulation**: Use the script `scripts/run_simulation.py` to run a short MD simulation on the prepared system. Example usage:
+  ```bash
+  python scripts/run_simulation.py --target GLP1R --ns 1.0
+  ```
+  - This loads the prepared system, sets up the force field, and runs a simulation for the specified number of nanoseconds (default 1 ns = 250,000 steps).
+  - Progress and energy/temperature information are printed to the terminal, and output files (trajectory, state) are saved in `artifacts/md/<target_name>/`.
+5.  **Analysis**: Once simulations are run, other modules (not yet fully implemented, e.g., `msm`, `ml`) can be used to analyze the trajectories to characterize cryptic pockets and other allosteric features.
 
 The `scripts/` directory contains helper and diagnostic scripts, such as `ff_locator.py` to check the availability of force field files.

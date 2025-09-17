@@ -8,6 +8,7 @@ ARTIFACTS_DIR = Path(__file__).resolve().parents[1] / "artifacts"
 MD_DIR = ARTIFACTS_DIR / "md" / TARGET_NAME
 # -------------------
 
+
 def make_molecules_whole(input_pdb_path: Path, output_pdb_path: Path):
     """
     Loads a PDB from a periodic box and saves a new PDB with
@@ -22,6 +23,7 @@ def make_molecules_whole(input_pdb_path: Path, output_pdb_path: Path):
 
     print(f"--> Saving new PDB to: {output_pdb_path}")
     traj.save_pdb(str(output_pdb_path))
+
 
 if __name__ == "__main__":
     in_pdb = MD_DIR / "prepared_system.pdb"
