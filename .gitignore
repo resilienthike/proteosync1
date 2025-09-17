@@ -1,14 +1,39 @@
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+
+# Distribution / packaging
 *.egg-info/
-.venv/
-.env
-conda-meta/
-build/
 dist/
+build/
+
+# Jupyter Notebook checkpoints
 .ipynb_checkpoints/
-artifacts/
+
+# VS Code settings
 .vscode/
+
+# PyCharm settings
 .idea/
+
+# Environment variables
+.env
+.venv/
+
+# Conda
+conda-meta/
+
+# Logs
+*.log
+
+# Shell scripts
+*.sh
+
+# macOS metadata
+.DS_Store
+
+# Generated data and artifacts
+/artifacts/
+/data/

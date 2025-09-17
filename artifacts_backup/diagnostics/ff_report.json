@@ -1,0 +1,43 @@
+{
+  "env": {
+    "openmm_version": "8.3.1",
+    "platforms": [
+      "Reference",
+      "CPU",
+      "OpenCL"
+    ],
+    "pdbfixer_version": "1.11.0"
+  },
+  "paths": {
+    "openmm_app_data": "/Users/hike/miniforge3/envs/vsx/lib/python3.11/site-packages/openmm/app/data",
+    "openmmforcefields_ffxml": "/Users/hike/miniforge3/envs/vsx/lib/python3.11/site-packages/openmmforcefields/ffxml"
+  },
+  "resolved": {
+    "protein_ff14SB_xml": "/Users/hike/miniforge3/envs/vsx/lib/python3.11/site-packages/openmmforcefields/ffxml/amber/protein.ff14SB.xml",
+    "tip3p_standard_xml": "/Users/hike/miniforge3/envs/vsx/lib/python3.11/site-packages/openmmforcefields/ffxml/amber/tip3p_standard.xml",
+    "lipid17_xml": "/Users/hike/miniforge3/envs/vsx/lib/python3.11/site-packages/openmmforcefields/ffxml/amber/lipid17.xml",
+    "protein_ff14SB_builtin_xml": "/Users/hike/miniforge3/envs/vsx/lib/python3.11/site-packages/openmm/app/data/amber14/protein.ff14SB.xml",
+    "tip3p_builtin_xml": "/Users/hike/miniforge3/envs/vsx/lib/python3.11/site-packages/openmm/app/data/amber14/tip3p.xml"
+  },
+  "lipids": {
+    "from_lipid17": []
+  },
+  "load_tests": {
+    "omff_ff14SB_tip3p_lipid17": {
+      "ok": true,
+      "files": [
+        "/Users/hike/miniforge3/envs/vsx/lib/python3.11/site-packages/openmmforcefields/ffxml/amber/protein.ff14SB.xml",
+        "/Users/hike/miniforge3/envs/vsx/lib/python3.11/site-packages/openmmforcefields/ffxml/amber/tip3p_standard.xml",
+        "/Users/hike/miniforge3/envs/vsx/lib/python3.11/site-packages/openmmforcefields/ffxml/amber/lipid17.xml"
+      ]
+    },
+    "builtin_ff14SB_tip3p__omff_lipid17": {
+      "ok": true,
+      "files": [
+        "/Users/hike/miniforge3/envs/vsx/lib/python3.11/site-packages/openmm/app/data/amber14/protein.ff14SB.xml",
+        "/Users/hike/miniforge3/envs/vsx/lib/python3.11/site-packages/openmm/app/data/amber14/tip3p.xml",
+        "/Users/hike/miniforge3/envs/vsx/lib/python3.11/site-packages/openmmforcefields/ffxml/amber/lipid17.xml"
+      ]
+    }
+  }
+}

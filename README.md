@@ -1,48 +1,77 @@
 # Proteosync
 
-Mechanistic Characterization of Cryptic Allosteric Sites.
+Mechanistic Characterization of Cryptic Allosteric Sites
 
-## Architecture Overview
+---
 
-`proteosync` is a Python-based command-line tool for preparing, running, and analyzing molecular dynamics (MD) simulations of proteins, with a focus on characterizing allosteric sites.
+## Quickstart: Environment Setup & Workflow
 
-The project is structured around a central library `vsx` found in the `src/` directory, with a CLI entrypoint, and various modules for handling specific tasks like data management, simulation setup, and feature analysis.
+### 1. Environment Setup (Recommended: Miniforge/Conda)
 
-### Core Components
+```bash
+# Download and install Miniforge (if not already installed)
+wget "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh"
+bash Miniforge3-Linux-x86_64.sh
+source ~/miniforge3/bin/activate
 
-- **CLI (`src/vsx/bench/cli.py`)**: The main user interface is a command-line application built with `typer`. It provides commands for managing the project, inspecting configuration, and launching simulation preparation tasks. The entry point is registered in `pyproject.toml` as the `proteosync` command.
+# Create and activate a new environment
+conda create --name vsx python=3.11 -c conda-forge -c pytorch
+conda activate vsx
 
-- **Configuration (`src/vsx/utils/`)**:
-  - `settings.py`: Defines the project's settings using `pydantic` models. This includes paths for artifacts, data, and logging configuration. Settings are loaded from `config/proteosync.yaml`.
-  - `paths.py`: Establishes the directory structure for the project, ensuring that artifacts, raw data, and processed structures are stored in a consistent manner.
-  - `config.py`: Provides utilities for loading and merging configurations.
+# Install dependencies
+conda install -c conda-forge -c pytorch openmm pdbfixer openmmforcefields mdtraj scipy pytorch cudatoolkit
 
-- **Data Management (`src/vsx/data/`)**:
-  - `targets.py`: Manages protein targets defined in `config/targets.yaml`. It includes functions to load target information and fetch sequence data from external databases like UniProt.
-  - `gpcr_structs.py`: Contains logic for downloading and standardizing protein structures.
+# (Optional) Install project in editable mode
+pip install -e .
+```
 
-- **Simulation Preparation (`src/vsx/md/`)**:
-  - `prepare_simulation.py`: This is the heart of the simulation setup pipeline. It uses `OpenMM` and `PDBFixer` to take a "seed" protein structure (e.g., a PDB or CIF file), and performs the following steps:
-    1.  **Fixing**: Adds missing atoms and residues.
-    2.  **Solvation**: Places the protein in a membrane and/or solvates it with water and ions.
-    3.  **Minimization**: Runs an energy minimization to relax the system.
-    4.  **Output**: Saves the prepared system as PDB files and the simulation state as an XML file, ready for MD simulations.
+### 2. Fetch or Prepare Input Data
 
-- **Feature Engineering (`src/vsx/feats/`)**:
-  - `pocket_def.py`: Provides functions to define and validate binding pockets based on residue selections. These pocket definitions are stored in `.tsv` files.
-
-### How It Works: A Typical Workflow
-
-
-1.  **Configuration**: A user defines a new protein target in `config/targets.yaml`, specifying its name and any relevant metadata like a UniProt ID.
-2.  **Input Structure**: A seed structure for the target is placed in `artifacts/data/<target_name>/seed_structure.pdb`.
-3.  **Simulation Preparation**: The user runs the simulation preparation script (e.g., via the CLI or directly). The `prepare_simulation` module reads the seed structure, cleans it, builds the simulation environment (membrane, water, ions), and saves the prepared system in the `artifacts/md/<target_name>/` directory.
-4.  **Running a Simulation**: Use the script `scripts/run_simulation.py` to run a short MD simulation on the prepared system. Example usage:
-  ```bash
-  python scripts/run_simulation.py --target GLP1R --ns 1.0
+- Place your seed structure (PDB or CIF) in:
   ```
-  - This loads the prepared system, sets up the force field, and runs a simulation for the specified number of nanoseconds (default 1 ns = 250,000 steps).
-  - Progress and energy/temperature information are printed to the terminal, and output files (trajectory, state) are saved in `artifacts/md/<target_name>/`.
-5.  **Analysis**: Once simulations are run, other modules (not yet fully implemented, e.g., `msm`, `ml`) can be used to analyze the trajectories to characterize cryptic pockets and other allosteric features.
+  artifacts/data/<target_name>/seed_structure.pdb
+  ```
+- Edit `config/targets.yaml` to define your target and metadata (e.g., UniProt ID).
 
-The `scripts/` directory contains helper and diagnostic scripts, such as `ff_locator.py` to check the availability of force field files.
+### 3. Prepare the Simulation System
+
+```bash
+python scripts/prepare_simulation.py --target <target_name> --padding-nm 1.0
+```
+This will:
+- Fix missing atoms/residues
+- Solvate and add ions
+- Minimize energy
+- Output files to `artifacts/md/<target_name>/`
+
+### 4. Run a Short MD Simulation
+
+```bash
+python scripts/run_simulation.py --target <target_name> --ns 1.0
+```
+This runs a 1 ns simulation (default) and saves trajectory/state files.
+
+### 5. Path Sampling with AI Model
+
+```bash
+python scripts/run_path_sampling.py
+```
+This script uses the trained CommittorNet AI model to perform path sampling and analyze transitions between states.
+
+---
+
+## Project Structure
+
+- `src/` — Main Python package (`vsx`) and modules
+- `scripts/` — Helper scripts for simulation, analysis, and diagnostics
+- `artifacts/` — Data, simulation outputs, logs, and results
+- `config/` — Project configuration files
+
+## Notes
+
+- Jupyter notebooks are optional and not required for the main workflow.
+- For troubleshooting, check log files in `artifacts/logs/` and ensure all dependencies are installed in your active conda environment.
+
+---
+
+For more details, see the docstrings in each script or module, or open an issue for help.
