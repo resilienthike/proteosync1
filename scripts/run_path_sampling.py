@@ -15,6 +15,10 @@ from openmm.unit import *
 
 from model import CommittorNet
 
+# Set device
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(f"[DEBUG] Using device: {device}")
+
 # --- Configuration ---
 TARGET_NAME = "GLP1R"
 ARTIFACTS_DIR = Path(__file__).resolve().parents[1] / "artifacts"
@@ -26,8 +30,9 @@ STATE_B_DISTANCE = 20.0  # Angstroms
 # -------------------------
 
 def frame_to_torch_graph(frame):
-    atom_types = torch.tensor([atom.element.atomic_number for atom in frame.topology.atoms], dtype=torch.long)
-    coords = torch.tensor(frame.xyz[0], dtype=torch.float32)
+    """Converts a single mdtraj frame to a graph format for our GNN."""
+    atom_types = torch.tensor([atom.element.atomic_number for atom in frame.topology.atoms], dtype=torch.long, device=device)
+    coords = torch.tensor(frame.xyz[0], dtype=torch.float32, device=device)
     cutoff = 0.5 # nm
     tree = KDTree(coords)
     adj_set = tree.query_pairs(r=cutoff)
@@ -36,10 +41,11 @@ def frame_to_torch_graph(frame):
     else:
         adj = np.array(list(adj_set), dtype=np.int64)
         adj_rev = np.fliplr(adj)
-        edge_index = torch.from_numpy(np.vstack((adj, adj_rev))).t().contiguous()
+        edge_index = torch.from_numpy(np.vstack((adj, adj_rev))).t().contiguous().to(device)
     return atom_types, coords, edge_index
 
 def get_pocket_distance(simulation):
+    """Calculates the current pocket distance in a simulation."""
     state = simulation.context.getState(getPositions=True)
     positions = state.getPositions()
     box_vectors = state.getPeriodicBoxVectors(asNumpy=True).value_in_unit(nanometer)
@@ -60,19 +66,24 @@ def get_pocket_distance(simulation):
     return distance * angstroms
 
 def run_shooting_move(simulation):
+    """Runs a short trajectory until it hits State A or B."""
     simulation.context.setVelocitiesToTemperature(310*kelvin)
     max_steps = 50000 
     report_interval = 2500
+    trajectory_frames = []
     for i in range(max_steps // report_interval):
-        simulation.step(report_interval)
+        model = CommittorNet().to(device)
+        print(f"[DEBUG] Model is on device: {next(model.parameters()).device}")
+        positions = simulation.context.getState(getPositions=True).getPositions()
+        trajectory_frames.append(positions.value_in_unit(nanometer))
         distance = get_pocket_distance(simulation)
-        if (i+1) % 4 == 0:
-             print(f"    ... shot progress {((i+1)*report_interval*4)/1000:.1f} ps, dist: {distance.value_in_unit(angstrom):.2f} Å")
+        
         if distance.value_in_unit(angstrom) < STATE_A_DISTANCE:
-            return "State A"
+            return "State A", trajectory_frames
         if distance.value_in_unit(angstrom) > STATE_B_DISTANCE:
-            return "State B"
-    return "Timeout"
+            return "State B", trajectory_frames
+            
+    return "Timeout", trajectory_frames
 
 def main():
     pdb_path = MD_DIR / "prepared_system.pdb"
@@ -82,10 +93,7 @@ def main():
     pdb = PDBFile(str(pdb_path))
     forcefield = ForceField("amber14-all.xml", "amber14/tip3p.xml", "amber/lipid17.xml")
     
-    system = forcefield.createSystem(
-        pdb.topology, nonbondedMethod=PME,
-        nonbondedCutoff=1.0*nanometer, constraints=HBonds
-    )
+    system = forcefield.createSystem(pdb.topology, nonbondedMethod=PME, nonbondedCutoff=1.0*nanometer, constraints=HBonds)
     integrator = LangevinIntegrator(310*kelvin, 1.0/picosecond, 4.0*femtoseconds)
     simulation = Simulation(pdb.topology, system, integrator)
     with open(state_path, 'r') as f:
@@ -93,35 +101,49 @@ def main():
 
     print("--> System loaded successfully.")
     
-    initial_traj = md.load(str(MD_DIR / "trajectory.dcd"), top=str(pdb_path))
+    current_path = md.load(str(MD_DIR / "trajectory.dcd"), top=str(pdb_path))
     
     print("--> Initializing CommittorNet AI model...")
     model = CommittorNet()
     optimizer = optim.Adam(model.parameters(), lr=1e-4)
     loss_fn = nn.BCELoss()
 
-    num_shots = 50
+    num_shots = 1000
     results = []
-    print(f"\n--> Starting AI-guided sampling loop for {num_shots} shots...")
+                target = torch.tensor([0.0], device=device) if result == "State A" else torch.tensor([1.0], device=device)
     
     for i in range(num_shots):
-        shooting_frame_index = random.randint(0, len(initial_traj) - 1)
-        shooting_frame = initial_traj[shooting_frame_index]
-        print(f"\n--- Shot {i+1}/{num_shots} (from frame {shooting_frame_index}) ---")
+        # --- AI-GUIDED SELECTION ---
+        with torch.no_grad():
+            committor_values = []
+                print(f"[DEBUG] Prediction tensor device: {prediction.device}, Target tensor device: {target.device}")
+            for frame in current_path:
+                atom_types, coords, edge_index = frame_to_torch_graph(frame)
+                p = model(atom_types, coords, edge_index).item()
+                committor_values.append(p)
+        
+        committor_values = np.array(committor_values)
+        shooting_frame_index = np.argmin(np.abs(committor_values - 0.5))
+        shooting_frame = current_path[shooting_frame_index]
+        # ---------------------------
+        
+        print(f"\n--- Shot {i+1}/{num_shots} (AI selected frame {shooting_frame_index} with p={committor_values[shooting_frame_index]:.4f}) ---")
         
         try:
-            # --- THIS TRY...EXCEPT BLOCK IS THE FIX ---
             atom_types, coords, edge_index = frame_to_torch_graph(shooting_frame)
             simulation.context.setPositions(shooting_frame.openmm_positions(0))
-            result = run_shooting_move(simulation)
+            result, new_frames = run_shooting_move(simulation)
             results.append(result)
             print(f"--> Shot {i+1} result: {result}")
 
-            if result == "State A":
-                target = torch.tensor([0.0])
-            elif result == "State B":
-                target = torch.tensor([1.0])
-            else:
+            if result == "State B":
+                print("🎉 SUCCESS! Found a path to State B! Saving trajectory...")
+                new_path = md.Trajectory(np.array(new_frames), md.Topology.from_openmm(pdb.topology))
+                new_path.save_dcd(str(MD_DIR / f"path_to_B_{i+1}.dcd"))
+                current_path = new_path 
+            
+            target = torch.tensor([0.0]) if result == "State A" else torch.tensor([1.0])
+            if result == "Timeout":
                 continue
             
             optimizer.zero_grad()
@@ -130,10 +152,9 @@ def main():
             loss.backward()
             optimizer.step()
             print(f"    AI Training: loss = {loss.item():.4f}")
-            # ---------------------------------------------
+
         except OpenMMException as e:
             print(f"🔥 WARNING: Shot {i+1} failed with an OpenMM error (likely NaN). Skipping shot.")
-            print(f"   Error details: {e}")
             results.append("Failed")
 
 
