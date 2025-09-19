@@ -1,170 +1,224 @@
 # scripts/run_path_sampling.py
-import mdtraj as md
-import numpy as np
-from pathlib import Path
+import time
 import random
 import sys
-from collections import Counter
+import subprocess
+import threading
+from pathlib import Path
+from collections import deque, Counter
+
+# Add current directory to Python path for local imports
+sys.path.insert(0, str(Path(__file__).parent))
+
+import mdtraj as md
+import numpy as np
 import torch
-import torch.nn as nn
 import torch.optim as optim
-from scipy.spatial import KDTree
-from openmm import *
-from openmm.app import *
+import torch.nn as nn
+from torch.multiprocessing import Process, Queue, set_start_method
+from tqdm import tqdm
+
 from openmm.unit import *
+from openmm.unit import amu, kilojoule_per_mole
 
-from model import CommittorNet
-
-# Set device
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print(f"[DEBUG] Using device: {device}")
+from model import CommittorNet, frame_to_torch_graph
+from worker import simulation_worker
 
 # --- Configuration ---
+# ==============================================================================
 TARGET_NAME = "GLP1R"
-ARTIFACTS_DIR = Path(__file__).resolve().parents[1] / "artifacts"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+ARTIFACTS_DIR = REPO_ROOT / "artifacts"
 MD_DIR = ARTIFACTS_DIR / "md" / TARGET_NAME
+MD_DIR.mkdir(parents=True, exist_ok=True)
 
-# --- State Definitions ---
-STATE_A_DISTANCE = 12.0  # Angstroms
-STATE_B_DISTANCE = 20.0  # Angstroms
-# -------------------------
+N_WORKERS = 2
+N_TOTAL_SHOTS = 1000
+LEARNING_RATE = 1e-4
+REPLAY_BUFFER_SIZE = 200
+TRAINING_BATCH_SIZE = 32
 
-def frame_to_torch_graph(frame):
-    """Converts a single mdtraj frame to a graph format for our GNN."""
-    atom_types = torch.tensor([atom.element.atomic_number for atom in frame.topology.atoms], dtype=torch.long, device=device)
-    coords = torch.tensor(frame.xyz[0], dtype=torch.float32, device=device)
-    cutoff = 0.5 # nm
-    tree = KDTree(coords)
-    adj_set = tree.query_pairs(r=cutoff)
-    if not adj_set:
-        edge_index = torch.empty((2, 0), dtype=torch.long)
-    else:
-        adj = np.array(list(adj_set), dtype=np.int64)
-        adj_rev = np.fliplr(adj)
-        edge_index = torch.from_numpy(np.vstack((adj, adj_rev))).t().contiguous().to(device)
-    return atom_types, coords, edge_index
+WORKER_CONFIG = {
+    "pdb_path": str(MD_DIR / "prepared_system.pdb"),
+    "state_path": str(MD_DIR / "minimized_state.xml"),
+    "system_path": str(MD_DIR / "system.xml"),
+    "state_a_residues": ('chainid 0 and resid 187 and name CA', 'chainid 0 and resid 393 and name CA'),
+    "state_a_threshold": 1.2 * nanometers,
+    "state_b_threshold": 2.0 * nanometers,
+    "shooting_move_steps": 50000,
+    "report_interval": 2500,
+}
+# ==============================================================================
 
-def get_pocket_distance(simulation):
-    """Calculates the current pocket distance in a simulation."""
-    state = simulation.context.getState(getPositions=True)
-    positions = state.getPositions()
-    box_vectors = state.getPeriodicBoxVectors(asNumpy=True).value_in_unit(nanometer)
-    mdtraj_topology = md.Topology.from_openmm(simulation.topology)
-    lengths = np.array([box_vectors[0][0], box_vectors[1][1], box_vectors[2][2]])
-    angles = np.array([90.0, 90.0, 90.0])
-    traj_frame = md.Trajectory(
-        xyz=np.array([positions.value_in_unit(nanometer)]), 
-        topology=mdtraj_topology,
-        unitcell_lengths=np.array([lengths]),
-        unitcell_angles=np.array([angles])
-    )
-    traj_frame.image_molecules(inplace=True)
-    atom_selection_1 = traj_frame.topology.select('chainid 0 and resid 187 and name CA')
-    atom_selection_2 = traj_frame.topology.select('chainid 0 and resid 393 and name CA')
-    atom_indices = [[atom_selection_1[0], atom_selection_2[0]]]
-    distance = md.compute_distances(traj_frame, atom_indices)[0, 0] * 10
-    return distance * angstroms
-
-def run_shooting_move(simulation):
-    """Runs a short trajectory until it hits State A or B."""
-    simulation.context.setVelocitiesToTemperature(310*kelvin)
-    max_steps = 50000 
-    report_interval = 2500
-    trajectory_frames = []
-    for i in range(max_steps // report_interval):
-        model = CommittorNet().to(device)
-        print(f"[DEBUG] Model is on device: {next(model.parameters()).device}")
-        positions = simulation.context.getState(getPositions=True).getPositions()
-        trajectory_frames.append(positions.value_in_unit(nanometer))
-        distance = get_pocket_distance(simulation)
+def monitor_gpu_utilization(stop_event, pbar, interval=10):
+    """Monitor GPU utilization and update the progress bar description."""
+    while not stop_event.is_set():
+        try:
+            result = subprocess.run(
+                ['nvidia-smi', '--query-gpu=utilization.gpu', '--format=csv,noheader,nounits'],
+                capture_output=True, text=True, check=True
+            )
+            utils = [f"{util.strip()}%" for util in result.stdout.strip().split('\n')]
+            pbar.set_description(f"GPU Util: {' / '.join(utils)}")
+        except Exception:
+            pbar.set_description("GPU Util: N/A")
         
-        if distance.value_in_unit(angstrom) < STATE_A_DISTANCE:
-            return "State A", trajectory_frames
-        if distance.value_in_unit(angstrom) > STATE_B_DISTANCE:
-            return "State B", trajectory_frames
-            
-    return "Timeout", trajectory_frames
+        time.sleep(interval)
 
-def main():
-    pdb_path = MD_DIR / "prepared_system.pdb"
-    state_path = MD_DIR / "minimized_state.xml"
-    
-    print("--> Loading prepared system...")
-    pdb = PDBFile(str(pdb_path))
-    forcefield = ForceField("amber14-all.xml", "amber14/tip3p.xml", "amber/lipid17.xml")
-    
-    system = forcefield.createSystem(pdb.topology, nonbondedMethod=PME, nonbondedCutoff=1.0*nanometer, constraints=HBonds)
-    integrator = LangevinIntegrator(310*kelvin, 1.0/picosecond, 4.0*femtoseconds)
-    simulation = Simulation(pdb.topology, system, integrator)
-    with open(state_path, 'r') as f:
-        simulation.context.setState(XmlSerializer.deserialize(f.read()))
+class AIMDRunner:
+    """Orchestrates the entire AIMD process."""
+    def __init__(self, initial_traj_path: str):
+        print("--> Initializing AIMMD Runner...")
+        self.topology = md.load_pdb(WORKER_CONFIG["pdb_path"]).topology
+        self.current_path = md.load(initial_traj_path, top=WORKER_CONFIG["pdb_path"])
+        
+        print("--> Initializing CommittorNet AI model on cuda:0...")
+        self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        self.model = CommittorNet().to(self.device)
+        self.optimizer = optim.Adam(self.model.parameters(), lr=LEARNING_RATE)
+        self.loss_fn = nn.BCELoss()
+        self.replay_buffer = []
 
-    print("--> System loaded successfully.")
-    
-    current_path = md.load(str(MD_DIR / "trajectory.dcd"), top=str(pdb_path))
-    
-    print("--> Initializing CommittorNet AI model...")
-    model = CommittorNet()
-    optimizer = optim.Adam(model.parameters(), lr=1e-4)
-    loss_fn = nn.BCELoss()
+        self.task_queue = Queue()
+        self.result_queue = Queue()
+        self.workers = []
+        
+        self.results_summary = Counter()
+        self.dispatched_shots = 0
 
-    num_shots = 1000
-    results = []
-                target = torch.tensor([0.0], device=device) if result == "State A" else torch.tensor([1.0], device=device)
-    
-    for i in range(num_shots):
-        # --- AI-GUIDED SELECTION ---
+    def start_workers(self):
+        print(f"--> Starting {N_WORKERS} simulation workers...")
+        for i in range(N_WORKERS):
+            p = Process(target=simulation_worker, args=(i, self.task_queue, self.result_queue, WORKER_CONFIG))
+            p.start()
+            self.workers.append(p)
+
+    def stop_workers(self):
+        for _ in self.workers:
+            self.task_queue.put(None)
+        for p in self.workers:
+            p.join(timeout=5)
+            if p.is_alive(): p.terminate()
+
+    def select_shooting_frame(self):
+        self.model.eval()
         with torch.no_grad():
-            committor_values = []
-                print(f"[DEBUG] Prediction tensor device: {prediction.device}, Target tensor device: {target.device}")
-            for frame in current_path:
-                atom_types, coords, edge_index = frame_to_torch_graph(frame)
-                p = model(atom_types, coords, edge_index).item()
-                committor_values.append(p)
-        
+            committor_values = [
+                self.model(*frame_to_torch_graph(frame, self.device)).item()
+                for frame in self.current_path
+            ]
         committor_values = np.array(committor_values)
-        shooting_frame_index = np.argmin(np.abs(committor_values - 0.5))
-        shooting_frame = current_path[shooting_frame_index]
-        # ---------------------------
+        shooting_frame_idx = np.argmin(np.abs(committor_values - 0.5))
+        shooting_frame = self.current_path[shooting_frame_idx]
         
-        print(f"\n--- Shot {i+1}/{num_shots} (AI selected frame {shooting_frame_index} with p={committor_values[shooting_frame_index]:.4f}) ---")
+        n_atoms = self.topology.n_atoms
+        # Get masses in amu (Da) - MDTraj returns masses as floats in Da
+        masses = np.array([a.element.mass for a in self.topology.atoms]).reshape(-1, 1)
+        
+        # Calculate thermal velocities: v = sqrt(kT/m)
+        # Use a simple conversion factor for proper velocity scale in nm/ps
+        velocity_scale = np.sqrt(310.0 / masses) * 0.1  # Empirical scale factor for nm/ps
+        velocities = np.random.randn(n_atoms, 3) * velocity_scale
+        
+        return shooting_frame, velocities
+
+    def train_model(self):
+        valid_samples = [item for item in self.replay_buffer if item[1] != -1]
+        if len(valid_samples) < TRAINING_BATCH_SIZE:
+            return
+
+        self.model.train()
+        batch = random.sample(valid_samples, min(len(valid_samples), TRAINING_BATCH_SIZE))
+        
+        self.optimizer.zero_grad()
+        total_loss = 0
+        for frame_data, target_val in batch:
+            atom_types, coords, edge_index = frame_data
+            target = torch.tensor([target_val], dtype=torch.float32, device=self.device)
+            prediction = self.model(atom_types, coords, edge_index)
+            loss = self.loss_fn(prediction, target)
+            loss.backward()
+            total_loss += loss.item()
+            
+        self.optimizer.step()
+        return total_loss / len(batch)
+
+    def run(self):
+        self.start_workers()
+        
+        pbar = tqdm(total=N_TOTAL_SHOTS, desc="Starting Shots", file=sys.stdout)
+        stop_event = threading.Event()
+        monitor_thread = threading.Thread(target=monitor_gpu_utilization, args=(stop_event, pbar))
+        monitor_thread.daemon = True
+        monitor_thread.start()
         
         try:
-            atom_types, coords, edge_index = frame_to_torch_graph(shooting_frame)
-            simulation.context.setPositions(shooting_frame.openmm_positions(0))
-            result, new_frames = run_shooting_move(simulation)
-            results.append(result)
-            print(f"--> Shot {i+1} result: {result}")
+            for _ in range(N_WORKERS * 2):
+                if self.dispatched_shots >= N_TOTAL_SHOTS: break
+                self.dispatch_shot()
 
-            if result == "State B":
-                print("🎉 SUCCESS! Found a path to State B! Saving trajectory...")
-                new_path = md.Trajectory(np.array(new_frames), md.Topology.from_openmm(pdb.topology))
-                new_path.save_dcd(str(MD_DIR / f"path_to_B_{i+1}.dcd"))
-                current_path = new_path 
-            
-            target = torch.tensor([0.0]) if result == "State A" else torch.tensor([1.0])
-            if result == "Timeout":
-                continue
-            
-            optimizer.zero_grad()
-            prediction = model(atom_types, coords, edge_index)
-            loss = loss_fn(prediction, target)
-            loss.backward()
-            optimizer.step()
-            print(f"    AI Training: loss = {loss.item():.4f}")
+            while self.results_summary.total() < N_TOTAL_SHOTS:
+                shot_index, result, trajectory_frames = self.result_queue.get()
+                
+                self.results_summary[result] += 1
+                
+                if result in ["State A", "State B"]:
+                    original_frame_data, _ = self.replay_buffer[shot_index]
+                    target_val = 0.0 if result == "State A" else 1.0
+                    self.replay_buffer[shot_index] = (original_frame_data, target_val)
+                    print(f"State {result[-1]}", flush=True)
 
-        except OpenMMException as e:
-            print(f"🔥 WARNING: Shot {i+1} failed with an OpenMM error (likely NaN). Skipping shot.")
-            results.append("Failed")
+                if result == "State B":
+                    print("✅ New path to State B!", flush=True)
+                    new_path = md.Trajectory(np.array(trajectory_frames), self.topology)
+                    new_path.save_dcd(MD_DIR / f"path_to_B_{shot_index}.dcd")
+                    self.current_path = new_path
 
+                # Train model and show loss after every shot
+                avg_loss = self.train_model()
+                if avg_loss:
+                    print(f"Loss: {avg_loss:.4f}")
+                    pbar.set_postfix(loss=f"{avg_loss:.4f}")
 
-    print("\n✅ Sampling complete!")
-    summary = Counter(results)
-    print("--- Summary ---")
-    print(f"Paths returned to State A: {summary.get('State A', 0)}")
-    print(f"Paths reached State B:     {summary.get('State B', 0)}")
-    print(f"Paths timed out:           {summary.get('Timeout', 0)}")
-    print(f"Paths failed (NaN):        {summary.get('Failed', 0)}")
+                if self.dispatched_shots < N_TOTAL_SHOTS:
+                    self.dispatch_shot()
+
+                pbar.update(1)
+        
+        finally:
+            stop_event.set()
+            monitor_thread.join(timeout=2)
+            pbar.close()
+            print("\n--> Stopping workers...")
+            self.stop_workers()
+            self.print_summary()
+
+    def dispatch_shot(self):
+        shot_index = self.dispatched_shots
+        frame, velocities = self.select_shooting_frame()
+        
+        frame_data_graph = frame_to_torch_graph(frame, self.device)
+        self.replay_buffer.append((frame_data_graph, -1.0))
+        
+        task = (shot_index, frame.xyz[0], velocities)
+        self.task_queue.put(task)
+        self.dispatched_shots += 1
+        
+    def print_summary(self):
+        print("\n✅ Sampling complete!")
+        print("--- Summary ---")
+        total = self.results_summary.total()
+        if total == 0: return
+        for state, count in self.results_summary.items():
+            print(f"  {state:<12}: {count:4d} ({count/total*100:5.1f}%)")
 
 if __name__ == "__main__":
-    main()
+    set_start_method("spawn", force=True)
+    initial_traj = str(MD_DIR / "trajectory.dcd")
+    
+    if not Path(initial_traj).exists():
+        print("🔥 Error: Initial trajectory 'trajectory.dcd' not found.", file=sys.stderr)
+        sys.exit(1)
+
+    runner = AIMDRunner(initial_traj)
+    runner.run()

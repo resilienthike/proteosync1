@@ -2,6 +2,9 @@
 from pathlib import Path
 import argparse
 import sys
+import subprocess
+import time
+import threading
 from openmm import *
 from openmm.app import *
 from openmm.unit import *
@@ -10,6 +13,23 @@ from openmm.unit import *
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ARTIFACTS_DIR = REPO_ROOT / "artifacts"
 MD_DIR = ARTIFACTS_DIR / "md" / "GLP1R"
+
+def monitor_gpu_utilization(stop_event, interval=5):
+    """Monitor GPU utilization during simulation"""
+    while not stop_event.is_set():
+        try:
+            result = subprocess.run(['nvidia-smi', '--query-gpu=utilization.gpu,memory.used,memory.total', 
+                                   '--format=csv,noheader,nounits'], 
+                                   capture_output=True, text=True)
+            if result.returncode == 0:
+                lines = result.stdout.strip().split('\n')
+                for i, line in enumerate(lines):
+                    gpu_util, mem_used, mem_total = line.split(',')
+                    print(f"GPU {i}: {gpu_util.strip()}% utilization, Memory: {mem_used.strip()}/{mem_total.strip()} MB")
+        except Exception as e:
+            print(f"Error monitoring GPU: {e}")
+        
+        time.sleep(interval)
 
 def run_simulation(target_name: str, steps: int):
     pdb_path = MD_DIR / "prepared_system.pdb"
@@ -24,10 +44,44 @@ def run_simulation(target_name: str, steps: int):
     system = forcefield.createSystem(pdb.topology, nonbondedMethod=PME, nonbondedCutoff=1.0*nanometer, constraints=HBonds)
     integrator = LangevinIntegrator(310*kelvin, 1.0/picosecond, 2.0*femtoseconds)
     
-    print("--> Finding CUDA platform...")
-    platform = Platform.getPlatformByName('CUDA')
-    properties = {'Precision': 'single'}
-    print(f"--> Using platform: {platform.getName()} with {properties['Precision']} precision")
+    print("--> Checking available platforms...")
+    num_platforms = Platform.getNumPlatforms()
+    print(f"Available platforms ({num_platforms}):")
+    for i in range(num_platforms):
+        platform_name = Platform.getPlatform(i).getName()
+        print(f"  {i}: {platform_name}")
+    
+    # Try to get CUDA platform
+    try:
+        print("--> Attempting to use CUDA platform...")
+        platform = Platform.getPlatformByName('CUDA')
+        
+        # Configure CUDA to use both GPUs and optimize settings
+        properties = {
+            'DeviceIndex': '0,1',  # Use both GPUs
+            'Precision': 'mixed',  # Mixed precision is often faster than single
+            'UseBlockingSync': 'false',  # Non-blocking for better performance
+            'DisablePmeStream': 'false'  # Enable PME stream for better GPU utilization
+        }
+        
+        print(f"--> Using platform: {platform.getName()}")
+        print(f"    GPU devices: {properties['DeviceIndex']}")
+        print(f"    Precision: {properties['Precision']}")
+        print(f"    Blocking sync: {properties['UseBlockingSync']}")
+        print(f"    PME stream: {properties['DisablePmeStream']}")
+    except Exception as e:
+        print(f"--> CUDA platform not available: {e}")
+        print("--> Falling back to OpenCL platform...")
+        try:
+            platform = Platform.getPlatformByName('OpenCL')
+            properties = {'Precision': 'single'}
+            print(f"--> Using platform: {platform.getName()} with {properties['Precision']} precision")
+        except Exception as e2:
+            print(f"--> OpenCL platform not available: {e2}")
+            print("--> Using CPU platform...")
+            platform = Platform.getPlatformByName('CPU')
+            properties = {}
+            print(f"--> Using platform: {platform.getName()}")
     
     simulation = Simulation(pdb.topology, system, integrator, platform, properties)
     
@@ -48,8 +102,27 @@ def run_simulation(target_name: str, steps: int):
     simulation.reporters.append(state_reporter)
 
     print("\n--> Starting production simulation...")
+    print("--> Starting GPU monitoring...")
+    
+    # Start GPU monitoring in background thread
+    stop_event = threading.Event()
+    monitor_thread = threading.Thread(target=monitor_gpu_utilization, args=(stop_event, 10))
+    monitor_thread.daemon = True
+    monitor_thread.start()
+    
+    start_time = time.time()
     simulation.step(steps)
-    print("--> Simulation complete!")
+    end_time = time.time()
+    
+    # Stop GPU monitoring
+    print("\n--> Stopping GPU monitoring...")
+    stop_event.set()
+    monitor_thread.join(timeout=2)
+    
+    total_time = end_time - start_time
+    print(f"\n--> Simulation complete!")
+    print(f"    Total time: {total_time:.2f} seconds")
+    print(f"    Performance: {steps/total_time:.2f} steps/second")
 
 
 if __name__ == "__main__":
