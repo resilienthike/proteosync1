@@ -2,8 +2,6 @@
 import mdtraj as md
 import matplotlib.pyplot as plt
 from pathlib import Path
-import numpy as np
-import sys  # Import sys to use for the state reporter
 
 # --- Configuration ---
 TARGET_NAME = "GLP1R"
@@ -12,7 +10,9 @@ MD_DIR = ARTIFACTS_DIR / "md" / TARGET_NAME
 # -------------------
 
 
-def analyze_distance(topology_path: Path, trajectory_path: Path, output_plot_path: Path):
+def analyze_distance(
+    topology_path: Path, trajectory_path: Path, output_plot_path: Path
+):
     """
     Calculates and plots the distance between two residues over a trajectory.
     """
@@ -31,13 +31,13 @@ def analyze_distance(topology_path: Path, trajectory_path: Path, output_plot_pat
     atom_indices = [[atom_selection_1[0], atom_selection_2[0]]]
     # -----------------------------
 
-    print(f"--> Calculating distance between residues 188 and 394...")
+    print("--> Calculating distance between residues 188 and 394...")
     distances = md.compute_distances(traj, atom_indices) * 10  # convert nm to Ångströms
 
     # Create a time axis in nanoseconds
     time = traj.time / 1000  # convert ps to ns
 
-    print(f"--> Generating plot...")
+    print("--> Generating plot...")
     plt.figure(figsize=(10, 6))
     plt.plot(time, distances)
     plt.title(f"Pocket Distance for {TARGET_NAME} (Res 188-394)")
