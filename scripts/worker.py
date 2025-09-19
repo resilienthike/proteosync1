@@ -6,6 +6,7 @@ from torch.multiprocessing import Queue
 from openmm import *
 from openmm.app import *
 from openmm.unit import *
+from openmm import OpenMMException
 
 def simulation_worker(
     gpu_index: int,
