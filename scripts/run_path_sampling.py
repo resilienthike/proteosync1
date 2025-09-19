@@ -45,12 +45,12 @@ WORKER_CONFIG = {
     "state_a_residues": ('chainid 0 and resid 187 and name CA', 'chainid 0 and resid 393 and name CA'),
     "state_a_threshold": 1.2 * nanometers,
     "state_b_threshold": 2.0 * nanometers,
-    "shooting_move_steps": 50000,
-    "report_interval": 2500,
+    "shooting_move_steps": 10000,
+    "report_interval": 1000,
 }
 # ==============================================================================
 
-def monitor_gpu_utilization(stop_event, pbar, interval=10):
+def monitor_gpu_utilization(stop_event, pbar, interval=5):
     """Monitor GPU utilization and update the progress bar description."""
     while not stop_event.is_set():
         try:
@@ -59,7 +59,12 @@ def monitor_gpu_utilization(stop_event, pbar, interval=10):
                 capture_output=True, text=True, check=True
             )
             utils = [f"{util.strip()}%" for util in result.stdout.strip().split('\n')]
-            pbar.set_description(f"GPU Util: {' / '.join(utils)}")
+            current_desc = pbar.desc or ""
+            if "Dispatched:" in current_desc or "Completed:" in current_desc:
+                base_info = current_desc.split("GPU Util:")[1].split("|")[1:] if "|" in current_desc else []
+                pbar.set_description(f"GPU Util: {' / '.join(utils)} | {' | '.join(base_info)}")
+            else:
+                pbar.set_description(f"GPU Util: {' / '.join(utils)}")
         except Exception:
             pbar.set_description("GPU Util: N/A")
         
@@ -124,11 +129,20 @@ class AIMDRunner:
 
     def train_model(self):
         valid_samples = [item for item in self.replay_buffer if item[1] != -1]
-        if len(valid_samples) < TRAINING_BATCH_SIZE:
+        
+        # Start training as soon as we have at least 2 samples, but use smaller batches initially
+        min_samples = 2
+        if len(valid_samples) < min_samples:
             return
-
+        
+        # Use adaptive batch size: start small, grow to full batch size
+        if len(valid_samples) < TRAINING_BATCH_SIZE:
+            batch_size = min(len(valid_samples), max(2, len(valid_samples) // 2))
+        else:
+            batch_size = TRAINING_BATCH_SIZE
+            
         self.model.train()
-        batch = random.sample(valid_samples, min(len(valid_samples), TRAINING_BATCH_SIZE))
+        batch = random.sample(valid_samples, batch_size)
         
         self.optimizer.zero_grad()
         total_loss = 0
@@ -156,6 +170,7 @@ class AIMDRunner:
             for _ in range(N_WORKERS * 2):
                 if self.dispatched_shots >= N_TOTAL_SHOTS: break
                 self.dispatch_shot()
+                pbar.set_description(f"GPU Util: N/A | Dispatched: {self.dispatched_shots}")
 
             while self.results_summary.total() < N_TOTAL_SHOTS:
                 shot_index, result, trajectory_frames = self.result_queue.get()
@@ -176,14 +191,21 @@ class AIMDRunner:
 
                 # Train model and show loss after every shot
                 avg_loss = self.train_model()
-                if avg_loss:
-                    print(f"Loss: {avg_loss:.4f}")
+                if avg_loss is not None:
+                    valid_count = len([item for item in self.replay_buffer if item[1] != -1])
+                    print(f"Loss: {avg_loss:.4f} (trained on {min(valid_count, TRAINING_BATCH_SIZE)} samples)")
                     pbar.set_postfix(loss=f"{avg_loss:.4f}")
+                else:
+                    valid_count = len([item for item in self.replay_buffer if item[1] != -1])
+                    print(f"Training skipped - need at least 2 valid samples, have {valid_count}")
+                    pbar.set_postfix(loss="N/A (need more data)")
 
                 if self.dispatched_shots < N_TOTAL_SHOTS:
                     self.dispatch_shot()
+                    pbar.set_description(f"GPU Util: N/A | Dispatched: {self.dispatched_shots}")
 
                 pbar.update(1)
+                pbar.set_description(f"GPU Util: N/A | Completed: {self.results_summary.total()}")
         
         finally:
             stop_event.set()

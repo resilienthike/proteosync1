@@ -36,6 +36,3 @@ conda-meta/
 # macOS metadata
 .DS_Store
 
-# Generated data and artifacts
-/artifacts/
-/data/
