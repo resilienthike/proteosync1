@@ -1,4 +1,4 @@
-# scripts/run_path_sampling.py
+ # scripts/run_path_sampling.py
 import time
 import random
 import sys
@@ -45,8 +45,36 @@ ARTIFACTS_DIR = REPO_ROOT / "artifacts"
 MD_DIR = ARTIFACTS_DIR / "md" / TARGET_NAME
 MD_DIR.mkdir(parents=True, exist_ok=True)
 
+# Multiple state definitions to explore different structural regions
+STATE_DEFINITIONS = [
+    {
+        "name": "tm_helix_separation",
+        "residues": ('chainid 0 and resid 187 and name CA', 'chainid 0 and resid 393 and name CA'),
+        "state_a_threshold": 1.2 * nanometers,
+        "state_b_threshold": 2.0 * nanometers
+    },
+    {
+        "name": "ecd_tm_loop_contact",
+        "residues": ('chainid 0 and resid 85 and name CA', 'chainid 0 and resid 310 and name CA'),
+        "state_a_threshold": 1.5 * nanometers,
+        "state_b_threshold": 2.5 * nanometers
+    },
+    {
+        "name": "intracellular_coupling",
+        "residues": ('chainid 0 and resid 220 and name CA', 'chainid 0 and resid 280 and name CA'),
+        "state_a_threshold": 1.0 * nanometers,
+        "state_b_threshold": 1.8 * nanometers
+    },
+    {
+        "name": "extracellular_gate",
+        "residues": ('chainid 0 and resid 120 and name CA', 'chainid 0 and resid 350 and name CA'),
+        "state_a_threshold": 1.3 * nanometers,
+        "state_b_threshold": 2.2 * nanometers
+    }
+]
+
 N_WORKERS = 1
-N_TOTAL_SHOTS = 2000
+N_TOTAL_SHOTS = 1000
 LEARNING_RATE = 1e-4
 REPLAY_BUFFER_SIZE = 200
 TRAINING_BATCH_SIZE = 32
@@ -55,12 +83,7 @@ WORKER_CONFIG = {
     "pdb_path": str(MD_DIR / "prepared_system.pdb"),
     "state_path": str(MD_DIR / "minimized_state.xml"),
     "system_path": str(MD_DIR / "system.xml"),
-    "state_a_residues": (
-        "chainid 0 and resid 187 and name CA",
-        "chainid 0 and resid 393 and name CA",
-    ),
-    "state_a_threshold": 1.2 * nanometers,
-    "state_b_threshold": 2.0 * nanometers,
+    "state_definitions": STATE_DEFINITIONS,  # Pass the whole list to the worker
     "shooting_move_steps": 10000,
     "report_interval": 1000,
 }
@@ -128,7 +151,7 @@ class AIMDRunner:
         # Enhanced path tracking
         self.path_history = []  # Store successful paths for diversity
         self.current_path_age = 0  # How long we've been using current path
-        self.max_path_age = 50  # Switch paths if no progress
+        self.max_path_age = 30  # Switch paths if no progress (reduced for 1000-shot runs)
 
         self.task_queue = Queue()
         self.result_queue = Queue()
@@ -354,8 +377,8 @@ class AIMDRunner:
         # Intelligent path selection: use elite trajectories if available
         source_path = self.current_path
         
-        # 30% chance to explore from elite trajectories if we have them
-        if self.elite_trajectories and random.random() < 0.3:
+        # 40% chance to explore from elite trajectories if we have them
+        if self.elite_trajectories and random.random() < 0.4:
             # Select from elite trajectories based on their promise
             elite_weights = [1.0 / (1.0 + traj['distance_to_b']) for traj in self.elite_trajectories]
             selected_elite = random.choices(self.elite_trajectories, weights=elite_weights)[0]
@@ -386,35 +409,39 @@ class AIMDRunner:
         return shooting_frame, velocities
     
     def calculate_distance_to_state_b(self, trajectory_frames):
-        """Calculate minimum distance to State B throughout trajectory."""
+        """Calculate minimum distance to State B throughout trajectory for all state definitions."""
         if not trajectory_frames:
             return float('inf')
             
         # Create temporary trajectory to analyze
         temp_traj = md.Trajectory(np.array(trajectory_frames), self.topology)
         
-        # Calculate distances using same criteria as worker
-        state_a_residues = WORKER_CONFIG["state_a_residues"]
+        best_distance_to_b = float('inf')
         
-        # Select atoms for distance calculation (CA atoms of specified residues)
-        atom_indices = []
-        for residue_sel in state_a_residues:
-            selected = temp_traj.topology.select(residue_sel)
-            if len(selected) > 0:
-                atom_indices.extend(selected)
-        
-        if len(atom_indices) < 2:
-            return float('inf')
+        # Check all state definitions to find the closest approach to any State B
+        for definition in STATE_DEFINITIONS:
+            # Select atoms for distance calculation
+            atom_indices = []
+            for residue_sel in definition["residues"]:
+                selected = temp_traj.topology.select(residue_sel)
+                if len(selected) > 0:
+                    atom_indices.extend(selected)
             
-        # Calculate pairwise distances between selected atoms
-        distances = md.compute_distances(temp_traj, [[atom_indices[0], atom_indices[1]]])
-        min_distance = np.min(distances)
+            if len(atom_indices) < 2:
+                continue
+                
+            # Calculate pairwise distances between selected atoms
+            distances = md.compute_distances(temp_traj, [[atom_indices[0], atom_indices[1]]])
+            min_distance = np.min(distances)
+            
+            # State B threshold varies by definition
+            target_distance = definition["state_b_threshold"].value_in_unit(nanometers)
+            distance_to_target = abs(min_distance - target_distance)
+            
+            # Keep track of the best (smallest) distance to any State B
+            best_distance_to_b = min(best_distance_to_b, distance_to_target)
         
-        # State B threshold is 2.0 nm, so closer to 2.0 is better
-        target_distance = WORKER_CONFIG["state_b_threshold"].value_in_unit(nanometers)
-        distance_to_target = abs(min_distance - target_distance)
-        
-        return distance_to_target
+        return best_distance_to_b
     
     def update_elite_buffer(self, trajectory_frames, distance_to_b):
         """Update elite buffer with promising near-miss trajectories."""
@@ -554,10 +581,9 @@ class AIMDRunner:
                 # Switch paths if current one is getting stale without progress
                 elif self.current_path_age > self.max_path_age and self.elite_trajectories:
                     best_elite = min(self.elite_trajectories, key=lambda x: x['distance_to_b'])
-                    if best_elite['distance_to_b'] < self.best_distance_to_b:
-                        print(f"🔄 Path refresh: switching to elite trajectory (dist: {best_elite['distance_to_b']:.3f}nm)")
-                        self.current_path = best_elite['trajectory']
-                        self.current_path_age = 0
+                    print(f"🔄 Path refresh: switching to elite trajectory (dist: {best_elite['distance_to_b']:.3f}nm) after {self.current_path_age} stale shots")
+                    self.current_path = best_elite['trajectory']
+                    self.current_path_age = 0
 
                 # Train model and show loss after every shot
                 avg_loss = self.train_model()
@@ -667,4 +693,4 @@ if __name__ == "__main__":
         sys.exit(1)
 
     runner = AIMDRunner(initial_traj)
-    runner.run()
+    runner.run() 

@@ -24,11 +24,8 @@ def simulation_worker(
         # --- Unpack Configuration ---
         pdb_path = config["pdb_path"]
         state_path = config["state_path"]
-        system_path = config["system_path"]  # New
-        # ... (rest of config variables)
-        state_a_residues = config["state_a_residues"]
-        state_a_threshold = config["state_a_threshold"]
-        state_b_threshold = config["state_b_threshold"]
+        system_path = config["system_path"]
+        state_definitions = config["state_definitions"]  # List of state definitions
         shooting_move_steps = config["shooting_move_steps"]
         report_interval = config["report_interval"]
 
@@ -65,19 +62,35 @@ def simulation_worker(
             simulation.context.setState(XmlSerializer.deserialize(f.read()))
 
         # ... (The rest of the worker function is the same) ...
-        # --- Define Distance Calculation ---
+        # --- Define Multi-State Boundary Checking ---
         md_topology = md.Topology.from_openmm(pdb.topology)
-        atom1_idx = md_topology.select(state_a_residues[0])[0]
-        atom2_idx = md_topology.select(state_a_residues[1])[0]
-        atom_indices = np.array([[atom1_idx, atom2_idx]])
-
-        def get_pocket_distance():
+        
+        def check_state_boundaries(simulation, state_definitions, md_topology):
+            """
+            Calculates distances for all state definitions and checks if any boundary is crossed.
+            Returns 'State A', 'State B', or None.
+            """
             state = simulation.context.getState(getPositions=True)
             positions_nm = state.getPositions(asNumpy=True).value_in_unit(nanometer)
-
-            # Create trajectory without unit cell info to avoid API issues
+            
             traj = md.Trajectory([positions_nm], topology=md_topology)
-            return md.compute_distances(traj, atom_indices)[0, 0] * nanometers
+            
+            for definition in state_definitions:
+                # Select atoms for the current definition
+                atom1_idx = md_topology.select(definition["residues"][0])[0]
+                atom2_idx = md_topology.select(definition["residues"][1])[0]
+                atom_indices = np.array([[atom1_idx, atom2_idx]])
+                
+                # Calculate distance
+                distance = md.compute_distances(traj, atom_indices)[0, 0] * nanometers
+                
+                # Check thresholds
+                if distance < definition["state_a_threshold"]:
+                    return "State A"
+                if distance > definition["state_b_threshold"]:
+                    return "State B"
+                    
+            return None  # No boundary was crossed
 
         # --- Main Worker Loop ---
         while True:
@@ -104,17 +117,13 @@ def simulation_worker(
                         .value_in_unit(nanometer)
                     )
                     trajectory_frames.append(pos)
-                    distance = get_pocket_distance()
-                    distance_nm = distance.value_in_unit(nanometer)
-                    threshold_a_nm = state_a_threshold.value_in_unit(nanometer)
-                    threshold_b_nm = state_b_threshold.value_in_unit(nanometer)
-
-                    if distance < state_a_threshold:
-                        final_state = "State A"
-                        break
-                    if distance > state_b_threshold:
-                        final_state = "State B"
-                        break
+                    
+                    # Check all state definitions at once
+                    current_state = check_state_boundaries(simulation, state_definitions, md_topology)
+                    if current_state is not None:
+                        final_state = current_state
+                        break  # Exit the loop as soon as any boundary is hit
+                        
                 except OpenMMException:
                     final_state = "Failed"
                     break
