@@ -5,12 +5,11 @@ from torch.multiprocessing import Queue
 
 from openmm import (
     Platform,
-    Simulation,
     XmlSerializer,
     LangevinIntegrator,
     OpenMMException,
 )
-from openmm.app import PDBFile, element
+from openmm.app import PDBFile, element, Simulation
 from openmm.unit import nanometer, nanometers, picosecond, femtoseconds, kelvin, amu
 
 
