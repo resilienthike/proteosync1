@@ -21,7 +21,6 @@ from torch.multiprocessing import Process, Queue, set_start_method
 from tqdm import tqdm
 
 from openmm.unit import nanometers
-import openmm.unit as unit
 
 from model import CommittorNet, frame_to_torch_graph
 from worker import simulation_worker
@@ -47,7 +46,7 @@ MD_DIR = ARTIFACTS_DIR / "md" / TARGET_NAME
 MD_DIR.mkdir(parents=True, exist_ok=True)
 
 N_WORKERS = 1
-N_TOTAL_SHOTS = 1000
+N_TOTAL_SHOTS = 2000
 LEARNING_RATE = 1e-4
 REPLAY_BUFFER_SIZE = 200
 TRAINING_BATCH_SIZE = 32
@@ -167,7 +166,6 @@ class AIMDRunner:
         if not torch.cuda.is_available():
             return False
             
-        memory_allocated = torch.cuda.memory_allocated() / 1024**3  # GB
         memory_reserved = torch.cuda.memory_reserved() / 1024**3     # GB
         
         # Check for emergency conditions
@@ -318,7 +316,7 @@ class AIMDRunner:
         # Check memory status every iteration in emergency mode, every 5 otherwise
         check_interval = 1 if self.emergency_mode else 5
         if self.iteration_count % check_interval == 0:
-            memory_critical = self.check_memory_status()
+            self.check_memory_status()
             
         # Regular cleanup
         if self.iteration_count % self.cleanup_interval == 0:
@@ -441,7 +439,7 @@ class AIMDRunner:
                 if distance_to_b < self.best_distance_to_b * 0.8:  # 20% improvement
                     self.current_path = elite_entry['trajectory']
                     self.current_path_age = 0
-                    print(f"🔄 Switching to new promising path!")
+                    print("🔄 Switching to new promising path!")
 
     def train_model(self):
         valid_samples = [item for item in self.replay_buffer if item[1] != -1]
