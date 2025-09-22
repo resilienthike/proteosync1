@@ -39,7 +39,7 @@ def cluster_trajectories():
     # Align all frames to the first frame based on the protein backbone
     traj.superpose(traj, frame=0, atom_indices=traj.topology.select('backbone'))
 
-    print(f"--> Clustering frames to find the most representative 'open' state...")
+    print("--> Clustering frames to find the most representative 'open' state...")
     # Using KMeans for simplicity, you can adjust n_clusters
     kmeans = KMeans(n_clusters=5, random_state=0, n_init='auto').fit(traj.xyz.reshape(traj.n_frames, -1))
     

@@ -3,12 +3,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import plotly.graph_objects as go
-import plotly.express as px
 from plotly.subplots import make_subplots
 import cmocean
-import colorcet as cc
 from pathlib import Path
-import sys
 
 # Set up beautiful plotting defaults
 plt.style.use('seaborn-v0_8-darkgrid')
@@ -255,10 +252,12 @@ def main():
     print("📊 Creating enhanced matplotlib plots...")
     create_enhanced_free_energy_plot(bin_centers, free_energy)
     
-    print("🌐 Creating interactive Plotly dashboard...")
+    print("Creating interactive Plotly dashboard...")
     interactive_fig = create_interactive_plotly_dashboard(bin_centers, free_energy)
+    if interactive_fig:
+        print("Interactive dashboard created successfully")
     
-    print("📈 Creating summary statistics...")
+    print("Creating summary statistics...")
     create_summary_statistics_plot(bin_centers, free_energy)
     
     print("\n✅ All enhanced visualizations created!")

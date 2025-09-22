@@ -1,5 +1,4 @@
 # scripts/analyze_paths.py
-import argparse
 from pathlib import Path
 import numpy as np
 import mdtraj as md
@@ -8,11 +7,8 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 import seaborn as sns
 import plotly.graph_objects as go
-import plotly.express as px
 from plotly.subplots import make_subplots
 import cmocean
-import colorcet as cc
-import sys
 
 from model import CommittorNet, frame_to_torch_graph
 
@@ -172,6 +168,8 @@ class PathAnalyzer:
         im = ax3.contourf(X, Y, Z, levels=20, cmap=cmocean.cm.thermal, alpha=0.8)
         ax3.plot(bin_centers, free_energy, linewidth=4, color='white', alpha=0.9)
         ax3.plot(bin_centers, free_energy, linewidth=2, color='black')
+        # Add colorbar for the contour plot
+        plt.colorbar(im, ax=ax3, shrink=0.8, label='Free Energy (kT)')
         ax3.set_xlabel("Committor p(B)", fontweight='bold')
         ax3.set_ylabel("Free Energy (kcal/mol)", fontweight='bold')
         ax3.set_title("Thermodynamic Landscape", fontweight='bold', pad=15)
