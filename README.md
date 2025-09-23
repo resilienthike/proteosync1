@@ -20,14 +20,33 @@ source ~/miniforge3/bin/activate
 conda create --name vsx python=3.11 -c conda-forge -c pytorch
 conda activate vsx
 
-# Install dependencies
+# Install core dependencies
 conda install -c conda-forge -c pytorch openmm pdbfixer openmmforcefields mdtraj scipy pytorch cudatoolkit
+
+# Install virtual screening and analysis packages
+conda install -c conda-forge rdkit autodock-vina openbabel
+conda install -c conda-forge matplotlib seaborn plotly bokeh
+
+# Install additional Python packages
+pip install biopython fpocket-py
 
 # (Optional) Install project in editable mode
 pip install -e .
 ```
 
-### 2. Fetch or Prepare Input Data
+### 2. Install fpocket for Cavity Detection
+
+```bash
+# Download and compile fpocket
+wget https://github.com/Discngine/fpocket/archive/4.0.tar.gz
+tar -xzf 4.0.tar.gz
+cd fpocket-4.0
+make
+sudo make install
+# Or add to PATH: export PATH=$PATH:$(pwd)/bin
+```
+
+### 3. Fetch or Prepare Input Data
 
 - Place your seed structure (PDB or CIF) in:
   ```
@@ -35,7 +54,7 @@ pip install -e .
   ```
 - Edit `config/targets.yaml` to define your target and metadata (e.g., UniProt ID).
 
-### 3. Prepare the Simulation System
+### 4. Prepare the Simulation System
 
 ```bash
 python scripts/prepare_simulation.py --target <target_name> --padding-nm 1.0
@@ -46,21 +65,21 @@ This will:
 - Minimize energy
 - Output files to `artifacts/md/<target_name>/`
 
-### 4. Run a Short MD Simulation
+### 5. Run a Short MD Simulation
 
 ```bash
 python scripts/run_simulation.py --target <target_name> --ns 1.0
 ```
 This runs a 1 ns simulation (default) and saves trajectory/state files.
 
-### 5. Multi-Region Path Sampling with AI Model
+### 6. Multi-Region Path Sampling with AI Model
 
 ```bash
 python scripts/run_path_sampling.py
 ```
 This script uses the trained CommittorNet AI model to perform comprehensive path sampling across multiple structural regions and analyze transitions between states.
 
-### 6. Enhanced Analysis & Visualization
+### 7. Enhanced Analysis & Visualization
 
 **Trajectory Analysis with Beautiful Plots:**
 ```bash
@@ -81,12 +100,24 @@ fpocket -f artifacts/md/<target_name>/fixed_seed.pdb
 python scripts/analyze_fpocket_results.py
 ```
 
+**Virtual Screening Pipeline:**
+```bash
+# Prepare ligand library for screening (with drug-like filtering)
+python scripts/prepare_ligands.py -i ligand_library.smi -o prepared_ligands.sdf --verbose
+
+# Run virtual screening with AutoDock Vina (using default GLP-1R pocket)
+python scripts/run_screening.py -r artifacts/md/<target_name>/fixed_seed.pdb -l prepared_ligands.sdf -o screening_results
+
+# Or specify custom pocket coordinates
+python scripts/run_screening.py -r receptor.pdb -l ligands.sdf -o results --center -1.78 0.08 -0.47 --size 14.0 11.7 9.5
+```
+
 **Clustering Analysis:**
 ```bash
 python scripts/cluster_paths.py
 ```
 
-### 7. Data Management & Cloud Sync
+### 8. Data Management & Cloud Sync
 
 **Sync results to OneDrive:**
 ```bash
@@ -114,6 +145,8 @@ rclone sync artifacts/ onedrive:Varosync/Datasets/artifacts/ --progress
   - `prepare_simulation.py` — System preparation and energy minimization
   - `run_simulation.py` — MD simulation execution
   - `run_path_sampling.py` — AI-guided multi-region path sampling
+  - `prepare_ligands.py` — Ligand library preparation with drug-like filtering
+  - `run_screening.py` — AutoDock Vina virtual screening pipeline
 - `artifacts/` — Simulation data and results:
   - `data/` — Input structures and configurations
   - `md/` — Simulation outputs, trajectories, and structures
@@ -127,6 +160,7 @@ rclone sync artifacts/ onedrive:Varosync/Datasets/artifacts/ --progress
 - **Multi-region exploration**: 4 distinct structural pathways (TM helix separation, ECD-TM loop contact, intracellular coupling, extracellular gate)
 - **AI-guided path sampling**: CommittorNet model for transition state analysis
 - **Cavity detection**: Integration with fpocket for comprehensive pocket characterization
+- **Virtual screening pipeline**: RDKit ligand preparation + AutoDock Vina docking
 - **Enhanced visualizations**: Publication-quality plots with seaborn, plotly, and interactive dashboards
 
 ### 🎯 GPCR-Specific Features
@@ -153,12 +187,24 @@ rclone sync artifacts/ onedrive:Varosync/Datasets/artifacts/ --progress
 
 ## Requirements
 
+### Core Dependencies
 - Python 3.11+
 - OpenMM 8.0+
 - MDTraj
-- Modern visualization libraries (seaborn, plotly, bokeh)
-- fpocket (for cavity detection)
-- rclone (for cloud sync)
+- PyTorch (for AI models)
+
+### Virtual Screening Stack
+- RDKit 2023.09.6+ (ligand preparation)
+- AutoDock Vina 1.2.7+ (molecular docking)
+- OpenBabel 3.1.1+ (chemical format conversion)
+
+### Analysis & Visualization
+- Modern visualization libraries (matplotlib, seaborn, plotly, bokeh)
+- BioPython (structure analysis)
+- fpocket 4.0+ (cavity detection)
+
+### Data Management
+- rclone (cloud sync)
 
 ## Notes
 
