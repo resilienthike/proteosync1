@@ -102,15 +102,20 @@ python scripts/analyze_fpocket_results.py
 
 **Virtual Screening Pipeline:**
 ```bash
-# Prepare ligand library for screening (with drug-like filtering)
-python scripts/prepare_ligands.py -i ligand_library.smi -o prepared_ligands.sdf --verbose
+# Convert SDF ligands to PDBQT format for docking
+python scripts/convert_sdf_to_pdbqt.py --input artifacts/ligands/ --output artifacts/ligands/pdbqt/
 
-# Run virtual screening with AutoDock Vina (using default GLP-1R pocket)
-python scripts/run_screening.py -r artifacts/md/<target_name>/fixed_seed.pdb -l prepared_ligands.sdf -o screening_results
+# Optional: Energy minimize ligands for better docking
+python scripts/minimize_ligands.py --input artifacts/ligands/ --output artifacts/ligands/minimized/
 
-# Or specify custom pocket coordinates
-python scripts/run_screening.py -r receptor.pdb -l ligands.sdf -o results --center -1.78 0.08 -0.47 --size 14.0 11.7 9.5
+# Run virtual screening with AutoDock Vina (CPU-optimized)
+python scripts/run_screening.py --ligands artifacts/ligands/pdbqt/ --receptor receptor_rigid.pdbqt --output artifacts/screening_results/
+
+# For custom binding sites, specify coordinates:
+python scripts/run_screening.py --ligands ligands/ --receptor receptor.pdbqt --center -1.78 0.08 -0.47 --size 14.0 11.7 9.5
 ```
+
+**Performance:** Successfully tested on GLP-1R with 7 ligands (100% success rate, 33.2s average per ligand using 25 CPU cores)
 
 **Clustering Analysis:**
 ```bash
@@ -145,12 +150,15 @@ rclone sync artifacts/ onedrive:Varosync/Datasets/artifacts/ --progress
   - `prepare_simulation.py` — System preparation and energy minimization
   - `run_simulation.py` — MD simulation execution
   - `run_path_sampling.py` — AI-guided multi-region path sampling
-  - `prepare_ligands.py` — Ligand library preparation with drug-like filtering
-  - `run_screening.py` — AutoDock Vina virtual screening pipeline
+  - `convert_sdf_to_pdbqt.py` — SDF to PDBQT format conversion for docking
+  - `minimize_ligands.py` — Energy minimization utility for ligands
+  - `run_screening.py` — CPU-optimized AutoDock Vina virtual screening pipeline
 - `artifacts/` — Simulation data and results:
   - `data/` — Input structures and configurations
   - `md/` — Simulation outputs, trajectories, and structures
   - `pockets/` — Pocket analysis results and visualizations
+  - `ligands/` — Ligand libraries (SDF format and PDBQT conversions)
+  - `screening_results/` — Virtual screening outputs and binding energies
   - `logs/` — Execution logs and diagnostics
 - `config/` — Project configuration files (YAML/TOML format)
 
@@ -160,7 +168,8 @@ rclone sync artifacts/ onedrive:Varosync/Datasets/artifacts/ --progress
 - **Multi-region exploration**: 4 distinct structural pathways (TM helix separation, ECD-TM loop contact, intracellular coupling, extracellular gate)
 - **AI-guided path sampling**: CommittorNet model for transition state analysis
 - **Cavity detection**: Integration with fpocket for comprehensive pocket characterization
-- **Virtual screening pipeline**: RDKit ligand preparation + AutoDock Vina docking
+- **Virtual screening pipeline**: CPU-optimized AutoDock Vina with Python API integration
+- **Ligand preparation**: RDKit-based energy minimization and PDBQT conversion
 - **Enhanced visualizations**: Publication-quality plots with seaborn, plotly, and interactive dashboards
 
 ### 🎯 GPCR-Specific Features
@@ -179,6 +188,9 @@ rclone sync artifacts/ onedrive:Varosync/Datasets/artifacts/ --progress
 
 ## Recent Developments
 
+- ✅ **Virtual screening pipeline**: Complete CPU-based AutoDock Vina implementation with Python API
+- ✅ **Ligand preparation tools**: SDF conversion, energy minimization, and PDBQT formatting
+- ✅ **Performance optimization**: 7 ligands screened in 3.9 minutes (25 CPU cores, 100% success rate)
 - ✅ **Multi-region path sampling**: Successfully completed 64 transition pathways
 - ✅ **Enhanced plotting infrastructure**: Modern visualization with seaborn, plotly, bokeh
 - ✅ **fpocket integration**: Cavity detection and analysis (44 pockets identified in GLP-1R)
