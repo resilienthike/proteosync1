@@ -9,6 +9,7 @@ import seaborn as sns
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import cmocean
+import argparse
 
 from model import CommittorNet, frame_to_torch_graph
 
@@ -18,12 +19,8 @@ sns.set_palette("husl")
 sns.set_context("paper", font_scale=1.5)
 
 # --- Configuration ---
-TARGET_NAME = "GLP1R"
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ARTIFACTS_DIR = REPO_ROOT / "artifacts"
-MD_DIR = ARTIFACTS_DIR / "md" / TARGET_NAME
-TRAJ_DIR = MD_DIR  # Files are directly in MD_DIR, not in a subfolder
-MODEL_PATH = MD_DIR / "final_committor_model.pt"
 KT_KCAL_MOL = 0.616  # kT at 310 K in kcal/mol
 
 class PathAnalyzer:
@@ -147,7 +144,7 @@ class PathAnalyzer:
         
         ax1.set_xlabel("Committor p(B)", fontweight='bold')
         ax1.set_ylabel("Free Energy (kcal/mol)", fontweight='bold')
-        ax1.set_title(f"Multi-Region Free Energy Profile\n{TARGET_NAME} Structural Exploration", fontweight='bold', pad=15)
+        ax1.set_title(f"Multi-Region Free Energy Profile\n{args.target} Structural Exploration", fontweight='bold', pad=15)
         ax1.grid(True, alpha=0.3)
         ax1.spines['top'].set_visible(False)
         ax1.spines['right'].set_visible(False)
@@ -269,7 +266,7 @@ class PathAnalyzer:
         )
         
         fig.update_layout(
-            title=f"<b>{TARGET_NAME} Multi-Region Exploration Dashboard</b>",
+            title=f"<b>{args.target} Multi-Region Exploration Dashboard</b>",
             height=800, template='plotly_white'
         )
         
@@ -280,14 +277,22 @@ class PathAnalyzer:
         print("🌐 Open in browser for interactive exploration!")
 
 def main():
+    parser = argparse.ArgumentParser(description="Analyze path sampling trajectories")
+    parser.add_argument("--target", "-t", required=True, help="Target name (e.g., GLP1R)")
+    args = parser.parse_args()
+    
+    MD_DIR = ARTIFACTS_DIR / "md" / args.target
+    TRAJ_DIR = MD_DIR  # Files are directly in MD_DIR, not in a subfolder
+    MODEL_PATH = MD_DIR / "final_committor_model.pt"
+    
     # Check if we're in a CI/CD environment or if data files are missing
     if not TRAJ_DIR.exists() or not MODEL_PATH.exists():
-        print("⚠️  Data files not found - this is expected in CI/CD environments")
+        print("Data files not found - this is expected in CI/CD environments")
         print(f"   - Trajectory directory: {TRAJ_DIR}")
         print(f"   - Model file: {MODEL_PATH}")
         print("   Large data files are stored in OneDrive, not in Git repository")
         print("   To run analysis locally, first execute: python scripts/run_path_sampling.py")
-        print("✅ Script completed successfully (no data to analyze)")
+        print("Script completed successfully (no data to analyze)")
         return
         
     analyzer = PathAnalyzer(TRAJ_DIR, MODEL_PATH)
