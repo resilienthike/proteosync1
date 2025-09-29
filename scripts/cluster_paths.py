@@ -3,24 +3,25 @@ import mdtraj as md
 from pathlib import Path
 from sklearn.cluster import KMeans
 import numpy as np
+import argparse
 
 # --- Configuration ---
-TARGET_NAME = "GLP1R"
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ARTIFACTS_DIR = REPO_ROOT / "artifacts"
-MD_DIR = ARTIFACTS_DIR / "md" / TARGET_NAME
-TRAJ_DIR = MD_DIR  # Files are directly in MD_DIR
 # ---------------------
 
-def cluster_trajectories():
+def cluster_trajectories(target_name):
+    MD_DIR = ARTIFACTS_DIR / "md" / target_name
+    TRAJ_DIR = MD_DIR  # Files are directly in MD_DIR
+    
     print("--> Finding all successful 'State B' trajectories...")
     
     # Check if trajectory directory exists
     if not TRAJ_DIR.exists():
-        print("⚠️  Trajectory directory not found - this is expected in CI/CD environments")
+        print("Trajectory directory not found - this is expected in CI/CD environments")
         print(f"   - Expected directory: {TRAJ_DIR}")
         print("   Large trajectory files are stored in OneDrive, not in Git repository")
-        print("✅ Clustering script completed successfully (no data to cluster)")
+        print("Clustering script completed successfully (no data to cluster)")
         return
         
     successful_paths = list(TRAJ_DIR.glob("path_to_B_*.dcd"))
@@ -62,7 +63,12 @@ def cluster_trajectories():
     output_path = MD_DIR / "open_state_centroid.pdb"
     print(f"--> Saving centroid of the largest cluster to: {output_path}")
     centroid_structure.save_pdb(str(output_path))
-    print("\n✅ Clustering complete!")
+    print("Clustering complete!")
+
 
 if __name__ == "__main__":
-    cluster_trajectories()
+    parser = argparse.ArgumentParser(description="Cluster trajectory paths and find representative structures")
+    parser.add_argument("--target", "-t", required=True, help="Target name (e.g., GLP1R)")
+    args = parser.parse_args()
+    
+    cluster_trajectories(args.target)

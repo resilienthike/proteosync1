@@ -1,11 +1,10 @@
 # scripts/postprocess_pdb.py
 import mdtraj as md
 from pathlib import Path
+import argparse
 
 # --- Configuration ---
-TARGET_NAME = "GLP1R"
 ARTIFACTS_DIR = Path(__file__).resolve().parents[1] / "artifacts"
-MD_DIR = ARTIFACTS_DIR / "md" / TARGET_NAME
 # -------------------
 
 
@@ -26,6 +25,11 @@ def make_molecules_whole(input_pdb_path: Path, output_pdb_path: Path):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Make molecules whole in PDB file")
+    parser.add_argument("--target", "-t", required=True, help="Target name (e.g., GLP1R)")
+    args = parser.parse_args()
+    
+    MD_DIR = ARTIFACTS_DIR / "md" / args.target
     in_pdb = MD_DIR / "prepared_system.pdb"
     out_pdb = MD_DIR / "prepared_system_whole.pdb"
 

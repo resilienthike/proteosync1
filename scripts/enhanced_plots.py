@@ -4,8 +4,14 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+    """Create summary statistics visualization"""
+    
+    if output_dir is None:
+        output_dir = ARTIFACTS_DIR / "md" / target_name
+        output_dir.mkdir(parents=True, exist_ok=True)_subplots
 import cmocean
 from pathlib import Path
+import argparse
 
 # Set up beautiful plotting defaults
 plt.style.use('seaborn-v0_8-darkgrid')
@@ -13,13 +19,15 @@ sns.set_palette("husl")
 sns.set_context("paper", font_scale=1.5)
 
 # Configuration
-TARGET_NAME = "GLP1R"
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ARTIFACTS_DIR = REPO_ROOT / "artifacts"
-MD_DIR = ARTIFACTS_DIR / "md" / TARGET_NAME
 
-def create_enhanced_free_energy_plot(bin_centers, free_energy):
+def create_enhanced_free_energy_plot(bin_centers, free_energy, target_name="Target", output_dir=None):
     """Create a beautiful free energy profile with multiple style options"""
+    
+    if output_dir is None:
+        output_dir = ARTIFACTS_DIR / "md" / target_name
+        output_dir.mkdir(parents=True, exist_ok=True)
     
     # 1. SEABORN STYLE - Professional publication quality
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
@@ -29,7 +37,7 @@ def create_enhanced_free_energy_plot(bin_centers, free_energy):
     ax1.fill_between(bin_centers, free_energy, alpha=0.3, color='#2E86AB')
     ax1.set_xlabel("Committor p(B)", fontsize=14, fontweight='bold')
     ax1.set_ylabel("Free Energy (kcal/mol)", fontsize=14, fontweight='bold')
-    ax1.set_title(f"Free Energy Profile - {TARGET_NAME}\nMulti-Region Structural Exploration", fontsize=16, fontweight='bold', pad=20)
+    ax1.set_title(f"Free Energy Profile - {target_name}\nMulti-Region Structural Exploration", fontsize=16, fontweight='bold', pad=20)
     ax1.grid(True, alpha=0.3)
     ax1.spines['top'].set_visible(False)
     ax1.spines['right'].set_visible(False)
@@ -61,14 +69,18 @@ def create_enhanced_free_energy_plot(bin_centers, free_energy):
     plt.tight_layout()
     
     # Save both styles
-    output_path_enhanced = MD_DIR / "enhanced_free_energy_profile.png"
+    output_path_enhanced = output_dir / "enhanced_free_energy_profile.png"
     plt.savefig(output_path_enhanced, dpi=300, bbox_inches='tight')
     print(f"✅ Enhanced plot saved to {output_path_enhanced}")
     
     plt.show()
 
-def create_interactive_plotly_dashboard(bin_centers, free_energy):
+def create_interactive_plotly_dashboard(bin_centers, free_energy, target_name="Target", output_dir=None):
     """Create an interactive Plotly dashboard"""
+    
+    if output_dir is None:
+        output_dir = ARTIFACTS_DIR / "md" / target_name
+        output_dir.mkdir(parents=True, exist_ok=True)
     
     # Create subplots
     fig = make_subplots(
@@ -140,7 +152,7 @@ def create_interactive_plotly_dashboard(bin_centers, free_energy):
     # Update layout
     fig.update_layout(
         title=dict(
-            text=f"<b>{TARGET_NAME} Multi-Region Exploration Dashboard</b><br><sub>Interactive Thermodynamic Analysis</sub>",
+            text=f"<b>{target_name} Multi-Region Exploration Dashboard</b><br><sub>Interactive Thermodynamic Analysis</sub>",
             x=0.5,
             font=dict(size=20)
         ),
@@ -158,13 +170,13 @@ def create_interactive_plotly_dashboard(bin_centers, free_energy):
     fig.update_yaxes(title_text="Probability", row=2, col=1)
     
     # Save interactive plot
-    output_path_interactive = MD_DIR / "interactive_dashboard.html"
+    output_path_interactive = output_dir / "interactive_dashboard.html"
     fig.write_html(str(output_path_interactive))
     print(f"✅ Interactive dashboard saved to {output_path_interactive}")
     
     return fig
 
-def create_summary_statistics_plot(bin_centers, free_energy):
+def create_summary_statistics_plot(bin_centers, free_energy, target_name="Target"):
     """Create a summary statistics visualization"""
     
     fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(16, 12))
@@ -231,13 +243,21 @@ def create_summary_statistics_plot(bin_centers, free_energy):
     
     plt.tight_layout()
     
-    output_path_stats = MD_DIR / "summary_statistics.png"
+    output_path_stats = output_dir / "summary_statistics.png"
     plt.savefig(output_path_stats, dpi=300, bbox_inches='tight')
     print(f"✅ Summary statistics saved to {output_path_stats}")
     
     plt.show()
 
 def main():
+    """Main function to create enhanced visualizations with argument parsing"""
+    parser = argparse.ArgumentParser(description="Create enhanced visualization plots")
+    parser.add_argument("--target", "-t", default="GLP1R", help="Target name (default: GLP1R)")
+    args = parser.parse_args()
+    
+    MD_DIR = ARTIFACTS_DIR / "md" / args.target
+    MD_DIR.mkdir(parents=True, exist_ok=True)
+    
     # Load the existing free energy data
     # (This would normally load from your analysis results)
     print("🎨 Creating enhanced visualizations...")
@@ -250,15 +270,15 @@ def main():
     free_energy = free_energy - np.min(free_energy)  # Set minimum to zero
     
     print("📊 Creating enhanced matplotlib plots...")
-    create_enhanced_free_energy_plot(bin_centers, free_energy)
+    create_enhanced_free_energy_plot(bin_centers, free_energy, args.target, MD_DIR)
     
     print("Creating interactive Plotly dashboard...")
-    interactive_fig = create_interactive_plotly_dashboard(bin_centers, free_energy)
+    interactive_fig = create_interactive_plotly_dashboard(bin_centers, free_energy, args.target, MD_DIR)
     if interactive_fig:
         print("Interactive dashboard created successfully")
     
     print("Creating summary statistics...")
-    create_summary_statistics_plot(bin_centers, free_energy)
+    create_summary_statistics_plot(bin_centers, free_energy, args.target, MD_DIR)
     
     print("\n✅ All enhanced visualizations created!")
     print(f"📁 Check the output directory: {MD_DIR}")

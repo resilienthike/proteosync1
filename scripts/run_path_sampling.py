@@ -6,6 +6,7 @@ import subprocess
 import threading
 import gc
 import os
+import argparse
 from pathlib import Path
 from collections import Counter
 
@@ -39,7 +40,12 @@ MAX_SAFE_MEMORY = 70.0             # Hard limit - reduce operations
 
 # --- Configuration ---
 # ==============================================================================
-TARGET_NAME = "GLP1R"
+# Parse arguments first to get target name
+parser = argparse.ArgumentParser(description="Run AI-guided path sampling for protein conformational transitions")
+parser.add_argument("--target", "-t", default="GLP1R", help="Target name (default: GLP1R)")
+args = parser.parse_args()
+
+TARGET_NAME = args.target
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ARTIFACTS_DIR = REPO_ROOT / "artifacts"
 MD_DIR = ARTIFACTS_DIR / "md" / TARGET_NAME
@@ -688,7 +694,7 @@ if __name__ == "__main__":
 
     if not Path(initial_traj).exists():
         print(
-            "🔥 Error: Initial trajectory 'trajectory.dcd' not found.", file=sys.stderr
+            "ERROR: Initial trajectory 'trajectory.dcd' not found.", file=sys.stderr
         )
         sys.exit(1)
 

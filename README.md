@@ -109,7 +109,7 @@ python scripts/convert_sdf_to_pdbqt.py --input artifacts/ligands/ --output artif
 python scripts/minimize_ligands.py --input artifacts/ligands/ --output artifacts/ligands/minimized/
 
 # Run virtual screening with AutoDock Vina (CPU-optimized)
-python scripts/run_screening.py --ligands artifacts/ligands/pdbqt/ --receptor receptor_rigid.pdbqt --output artifacts/screening_results/
+python scripts/run_screening.py --ligands artifacts/ligands/pdbqt/ --receptor GLP1R_receptor.pdbqt --output artifacts/screening_results/
 
 # For custom binding sites, specify coordinates:
 python scripts/run_screening.py --ligands ligands/ --receptor receptor.pdbqt --center -1.78 0.08 -0.47 --size 14.0 11.7 9.5

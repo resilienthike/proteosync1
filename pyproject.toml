@@ -3,13 +3,46 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-
 name = "proteosync"
 version = "0.1.0"
 description = "Mechanistic Characterization of Cryptic Allosteric Sites"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "Varosync" }]
+dependencies = [
+    "numpy>=1.24.0",
+    "scipy>=1.10.0",
+    "pandas>=2.0.0",
+    "matplotlib>=3.6.0",
+    "seaborn>=0.12.0",
+    "plotly>=5.14.0",
+    "bokeh>=3.0.0",
+    "vina>=1.2.5",
+    "rdkit>=2023.09.6",
+    "biopython>=1.81",
+    "psutil>=5.9.0",
+    "pyyaml>=6.0",
+    "toml>=0.10.0",
+    "pathlib",
+    "argparse"
+]
+
+[project.optional-dependencies]
+md = [
+    "openmm>=8.0.0",
+    "pdbfixer>=1.9",
+    "mdtraj>=1.9.0",
+    "openmmforcefields>=0.12.0"
+]
+ml = [
+    "torch>=2.0.0",
+    "scikit-learn>=1.3.0"
+]
+dev = [
+    "pytest>=7.0.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0"
+]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
