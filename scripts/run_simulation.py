@@ -5,8 +5,8 @@ import sys
 import subprocess
 import time
 import threading
-from openmm import Platform, Simulation, XmlSerializer, LangevinIntegrator
-from openmm.app import PDBFile, ForceField, PME, HBonds, DCDReporter, StateDataReporter
+from openmm import Platform, XmlSerializer, LangevinIntegrator
+from openmm.app import PDBFile, ForceField, PME, HBonds, DCDReporter, StateDataReporter, Simulation
 from openmm.unit import nanometer, picosecond, femtoseconds, kelvin
 
 # Define project paths
@@ -50,7 +50,7 @@ def run_simulation(target_name: str, steps: int):
 
     print("--> Loading the prepared system...")
     pdb = PDBFile(str(pdb_path))
-    forcefield = ForceField("amber14-all.xml", "amber14/tip3p.xml", "amber/lipid17.xml")
+    forcefield = ForceField("amber14-all.xml", "amber14/tip3p.xml", "amber14/lipid17.xml")
     system = forcefield.createSystem(
         pdb.topology,
         nonbondedMethod=PME,
@@ -71,12 +71,11 @@ def run_simulation(target_name: str, steps: int):
         print("--> Attempting to use CUDA platform...")
         platform = Platform.getPlatformByName("CUDA")
 
-        # Configure CUDA to use both GPUs and optimize settings
+        # Configure CUDA to use single GPU with optimized settings
         properties = {
-            "DeviceIndex": "0,1",  # Use both GPUs
+            "DeviceIndex": "0",    # Use first GPU
             "Precision": "mixed",  # Mixed precision is often faster than single
-            "UseBlockingSync": "false",  # Non-blocking for better performance
-            "DisablePmeStream": "false",  # Enable PME stream for better GPU utilization
+            "UseBlockingSync": "false"  # Non-blocking for better performance
         }
 
         print(f"--> Using platform: {platform.getName()}")

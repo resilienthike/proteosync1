@@ -2,15 +2,16 @@
 import mdtraj as md
 import matplotlib.pyplot as plt
 from pathlib import Path
-import argparse
 
 # --- Configuration ---
+TARGET_NAME = "GLP1R"
 ARTIFACTS_DIR = Path(__file__).resolve().parents[1] / "artifacts"
+MD_DIR = ARTIFACTS_DIR / "md" / TARGET_NAME
 # -------------------
 
 
 def analyze_distance(
-    topology_path: Path, trajectory_path: Path, output_plot_path: Path, target_name: str
+    topology_path: Path, trajectory_path: Path, output_plot_path: Path
 ):
     """
     Calculates and plots the distance between two residues over a trajectory.
@@ -39,28 +40,14 @@ def analyze_distance(
     print("--> Generating plot...")
     plt.figure(figsize=(10, 6))
     plt.plot(time, distances)
-    plt.title(f"Pocket Distance for {target_name} (Res 188-394)")
+    plt.title(f"Pocket Distance for {TARGET_NAME} (Res 188-394)")
     plt.xlabel("Time (ns)")
     plt.ylabel("Distance (Å)")
     plt.ylim(bottom=0)  # Ensure y-axis starts at 0
     plt.grid(True)
     plt.savefig(str(output_plot_path))
 
-    print(f"Plot saved to {output_plot_path}")
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Analyze trajectory distance between residues")
-    parser.add_argument("--target", "-t", required=True, help="Target name (e.g., GLP1R)")
-    args = parser.parse_args()
-    
-    MD_DIR = ARTIFACTS_DIR / "md" / args.target
-    
-    topology_path = MD_DIR / "prepared_system.pdb"
-    trajectory_path = MD_DIR / "trajectory.dcd"
-    output_plot = MD_DIR / "distance_over_time.png"
-
-    analyze_distance(topology_path, trajectory_path, output_plot, args.target)
+    print(f"✅ Plot saved to {output_plot_path}")
 
 
 if __name__ == "__main__":
