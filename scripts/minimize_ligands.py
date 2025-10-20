@@ -61,8 +61,8 @@ def minimize_ligand_energy(mol, max_iterations=1000, convergence_threshold=1e-6)
             energy_after = AllChem.UFFGetMoleculeForceField(mol).CalcEnergy()
             converged = True  # UFF doesn't return convergence info
             return mol, energy_after, converged
-        except:
-            logging.error("Both MMFF and UFF failed")
+        except Exception:
+            logging.exception("Both MMFF and UFF failed")
             return mol, None, False
     
     # MMFF optimization 
@@ -162,7 +162,7 @@ def minimize_pdbqt_file(pdbqt_file, output_file=None, verbose=False):
     logging.debug(f"Loaded molecule with {mol.GetNumAtoms()} atoms")
     
     # Perform energy minimization
-    min_mol, final_energy, converged = minimize_ligand_energy(mol, verbose=verbose)
+    min_mol, final_energy, converged = minimize_ligand_energy(mol)
     
     if min_mol is None:
         logging.error("Energy minimization failed")
@@ -225,7 +225,7 @@ def minimize_multiple_files(input_pattern, output_dir=None, verbose=False):
         if result["success"]:
             successful += 1
         
-    print(f"\n📊 Minimization Summary:")
+    print("\n📊 Minimization Summary:")
     print(f"   Successful: {successful}/{len(files)}")
     print(f"   Failed: {len(files) - successful}/{len(files)}")
     
@@ -271,9 +271,8 @@ Examples:
     try:
         # Check if RDKit is available
         logging.info(f"Using RDKit version: {Chem.__version__}")
-        
-    except Exception as e:
-        logging.error("RDKit not available. Please install it:")
+    except Exception:
+        logging.exception("RDKit not available. Please install it:")
         logging.error("  conda install -c conda-forge rdkit")
         sys.exit(1)
     
@@ -304,7 +303,7 @@ Examples:
             result = minimize_pdbqt_file(args.input, output_file, args.verbose)
             
             if result["success"]:
-                print(f"\n✅ Minimization successful!")
+                print("\n✅ Minimization successful!")
                 if result["final_energy"]:
                     print(f"   Final energy: {result['final_energy']:.2f} kcal/mol")
                 print(f"   Output: {result['output_file']}")
