@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 import logging
 from rdkit import Chem
-from rdkit.Chem import AllChem, rdMolDescs
+from rdkit.Chem import AllChem, Descriptors
 from rdkit.Chem import rdForceFieldHelpers
 import time
 

@@ -24,8 +24,10 @@ ARTIFACTS_DIR = REPO_ROOT / "artifacts"
 KT_KCAL_MOL = 0.616  # kT at 310 K in kcal/mol
 
 class PathAnalyzer:
-    def __init__(self, traj_dir, model_path):
+    def __init__(self, traj_dir, model_path, target_name="Target"):
         self.traj_dir = traj_dir
+        self.md_dir = traj_dir  # Store md_dir for output paths
+        self.target_name = target_name
         self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
         print(f"--> Loading model from {model_path} onto {self.device}")
         self.model = self._load_model(model_path)
@@ -50,7 +52,7 @@ class PathAnalyzer:
         
         for traj_file in tqdm(traj_files, desc="Analyzing Trajectories"):
             try:
-                traj = md.load(traj_file, top=MD_DIR / "prepared_system.pdb")
+                traj = md.load(traj_file, top=self.traj_dir / "prepared_system.pdb")
                 self.trajectories.append(traj)
                 
                 result = "State B"  # All our files are successful paths to State B
@@ -144,7 +146,7 @@ class PathAnalyzer:
         
         ax1.set_xlabel("Committor p(B)", fontweight='bold')
         ax1.set_ylabel("Free Energy (kcal/mol)", fontweight='bold')
-        ax1.set_title(f"Multi-Region Free Energy Profile\n{args.target} Structural Exploration", fontweight='bold', pad=15)
+        ax1.set_title(f"Multi-Region Free Energy Profile\n{self.target_name} Structural Exploration", fontweight='bold', pad=15)
         ax1.grid(True, alpha=0.3)
         ax1.spines['top'].set_visible(False)
         ax1.spines['right'].set_visible(False)
@@ -209,7 +211,7 @@ class PathAnalyzer:
         plt.tight_layout()
         
         # Save enhanced plot
-        output_path = MD_DIR / "enhanced_free_energy_analysis.png"
+        output_path = self.md_dir / "enhanced_free_energy_analysis.png"
         plt.savefig(output_path, dpi=300, bbox_inches='tight')
         print(f"✅ Enhanced analysis plot saved to {output_path}")
         
@@ -266,12 +268,12 @@ class PathAnalyzer:
         )
         
         fig.update_layout(
-            title=f"<b>{args.target} Multi-Region Exploration Dashboard</b>",
+            title=f"<b>{self.target_name} Multi-Region Exploration Dashboard</b>",
             height=800, template='plotly_white'
         )
         
         # Save interactive
-        output_path_interactive = MD_DIR / "interactive_analysis.html"
+        output_path_interactive = self.md_dir / "interactive_analysis.html"
         fig.write_html(str(output_path_interactive))
         print(f"✅ Interactive dashboard saved to {output_path_interactive}")
         print("🌐 Open in browser for interactive exploration!")
@@ -295,7 +297,7 @@ def main():
         print("Script completed successfully (no data to analyze)")
         return
         
-    analyzer = PathAnalyzer(TRAJ_DIR, MODEL_PATH)
+    analyzer = PathAnalyzer(TRAJ_DIR, MODEL_PATH, args.target)
     analyzer.load_and_analyze_trajectories()
     bin_centers, free_energy = analyzer.calculate_free_energy_profile()
     analyzer.plot_profile(bin_centers, free_energy)

@@ -1,0 +1,30 @@
+Virtual Screening Results for CID_9948690.pdbqt
+==================================================
+Receptor: /home/ubuntu/workspace/proteosync1/data/receptor/GLP1R_receptor_rigid.pdbqt
+Search center: (-1.78, 0.08, -0.47)
+Search box: (14.0, 11.7, 9.5)
+Exhaustiveness: 32
+CPU cores used: 26
+Docking time: 14.5s
+
+Binding Scores:
+Pose  1:   0.00 kcal/mol  RMSD:  0.00 - -1.26
+Pose  2:   0.00 kcal/mol  RMSD:  0.00 - -1.26
+Pose  3:   0.00 kcal/mol  RMSD:  0.00 - -1.26
+Pose  4:   0.00 kcal/mol  RMSD:  0.00 - -1.26
+Pose  5:   0.00 kcal/mol  RMSD:  0.00 - -1.26
+Pose  6:   0.00 kcal/mol  RMSD:  0.00 - -1.26
+Pose  7:   0.00 kcal/mol  RMSD:  0.00 - -1.26
+Pose  8:   0.00 kcal/mol  RMSD:  0.00 - -1.26
+Pose  9:   0.00 kcal/mol  RMSD:  0.00 - -1.26
+Pose 10:   0.00 kcal/mol  RMSD:  0.00 - -1.26
+Pose 11:   0.00 kcal/mol  RMSD:  0.00 - -1.26
+Pose 12:   0.00 kcal/mol  RMSD:  0.00 - -1.25
+Pose 13:   0.00 kcal/mol  RMSD:  0.00 - -1.25
+Pose 14:   0.00 kcal/mol  RMSD:  0.00 - -1.25
+Pose 15:   0.00 kcal/mol  RMSD:  0.00 - -1.25
+Pose 16:   0.00 kcal/mol  RMSD:  0.00 - -1.25
+Pose 17:   0.00 kcal/mol  RMSD:  0.00 - -1.25
+Pose 18:   0.00 kcal/mol  RMSD:  0.00 - -1.25
+Pose 19:   0.00 kcal/mol  RMSD:  0.00 - -1.25
+Pose 20:   0.00 kcal/mol  RMSD:  0.00 - -1.25
