@@ -1,4 +1,3 @@
-# scripts/prepare_simulation.py
 from pathlib import Path
 import argparse
 import sys
@@ -9,10 +8,9 @@ from openmm.app import PDBFile, PDBxFile, Modeller, ForceField, Simulation, HBon
 
 # --- Configuration ---
 REPO_ROOT = Path(__file__).resolve().parents[1]
-ARTIFACTS_DIR = REPO_ROOT / "artifacts"
-DATA_DIR = ARTIFACTS_DIR / "data"
+DATA_DIR = REPO_ROOT / "data"  # All data (inputs and prepared systems)
+BOLTZ_RESULTS_DIR = REPO_ROOT / "boltz_results_glp1r"
 # ---------------------
-
 
 def _ensure_pdb(seed_file: Path) -> Path:
     seed_file = seed_file.resolve()
@@ -29,21 +27,37 @@ def _ensure_pdb(seed_file: Path) -> Path:
         return pdb_path
     raise ValueError(f"Unsupported seed format: {seed_file.suffix}")
 
-
 def _load_ff() -> ForceField:
     return ForceField("amber14-all.xml", "amber14/tip3p.xml", "amber14/lipid17.xml")
 
-
-def prepare_system(target_name: str):
+def prepare_system(target_name: str, use_boltz: bool = False):
     print(f"--- Preparing system for target: {target_name} ---")
 
-    seed_file = DATA_DIR / target_name / "seed_structure.cif"
-    out_dir = ARTIFACTS_DIR / "md" / target_name
-    out_dir.mkdir(parents=True, exist_ok=True)
+    # Determine seed file location based on whether using Boltz or traditional structure
+    if use_boltz:
+        # Look for Boltz-generated structure
+        boltz_pred_dir = BOLTZ_RESULTS_DIR / "predictions" / target_name
+        seed_file = boltz_pred_dir / f"{target_name}_model_0.cif"
+        if not seed_file.exists():
+            print(f"🔥 Error: Boltz structure not found at {seed_file}", file=sys.stderr)
+            print(f"   Did you run: boltz predict data/{target_name}.yaml --use_msa_server", file=sys.stderr)
+            sys.exit(1)
+        print(f"--> Using Boltz-generated structure: {seed_file}")
+    else:
+        # Traditional structure from data/ folder
+        seed_file = DATA_DIR / f"{target_name}_structure.cif"
+        if not seed_file.exists():
+            # Try PDB format
+            seed_file = DATA_DIR / f"{target_name}_structure.pdb"
+            if not seed_file.exists():
+                print(f"🔥 Error: Structure file not found in {DATA_DIR}", file=sys.stderr)
+                print(f"   Looking for: {target_name}_structure.cif or {target_name}_structure.pdb", file=sys.stderr)
+                sys.exit(1)
+        print(f"--> Using structure from data/: {seed_file}")
 
-    if not seed_file.exists():
-        print(f"🔥 Error: Seed file not found at {seed_file}", file=sys.stderr)
-        sys.exit(1)
+    # Output to data/ folder
+    out_dir = DATA_DIR / target_name
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     pdb_path = _ensure_pdb(seed_file)
     print("--> Fixing PDB structure with PDBFixer...")
@@ -121,6 +135,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Prepare a GPCR system for MD simulation."
     )
-    parser.add_argument("--target", "-t", required=True, help="Target name.")
+    parser.add_argument("--target", "-t", required=True, help="Target name (e.g., glp1r).")
+    parser.add_argument(
+        "--boltz", 
+        action="store_true", 
+        help="Use Boltz-generated structure from boltz_results_glp1r/ directory"
+    )
     args = parser.parse_args()
-    prepare_system(args.target)
+    prepare_system(args.target, use_boltz=args.boltz)

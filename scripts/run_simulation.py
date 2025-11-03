@@ -1,4 +1,3 @@
-# scripts/run_simulation.py
 from pathlib import Path
 import argparse
 import sys
@@ -12,7 +11,7 @@ from openmm.unit import nanometer, picosecond, femtoseconds, kelvin
 # Define project paths
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ARTIFACTS_DIR = REPO_ROOT / "artifacts"
-MD_DIR = ARTIFACTS_DIR / "md" / "GLP1R"
+DATA_DIR = REPO_ROOT / "data"
 
 
 def monitor_gpu_utilization(stop_event, interval=5):
@@ -41,13 +40,22 @@ def monitor_gpu_utilization(stop_event, interval=5):
         time.sleep(interval)
 
 
-def run_simulation(target_name: str, steps: int):
-    pdb_path = MD_DIR / "prepared_system.pdb"
-    state_path = MD_DIR / "minimized_state.xml"
+def run_simulation(target_name: str, steps: int, use_boltz: bool = False):
+    # Set paths based on whether using Boltz or traditional workflow
+    if use_boltz:
+        # Boltz workflow: prepared files are in data/target_name/
+        md_dir = DATA_DIR / target_name.lower()
+    else:
+        # Traditional workflow: files are in artifacts/md/TARGET_NAME/
+        md_dir = ARTIFACTS_DIR / "md" / target_name.upper()
+
+    pdb_path = md_dir / "prepared_system.pdb"
+    state_path = md_dir / "minimized_state.xml"
 
     if not pdb_path.exists() or not state_path.exists():
-        raise FileNotFoundError(f"Prepared system files not found in {MD_DIR}")
+        raise FileNotFoundError(f"Prepared system files not found in {md_dir}")
 
+    print(f"--> Using prepared system from: {md_dir}")
     print("--> Loading the prepared system...")
     pdb = PDBFile(str(pdb_path))
     forcefield = ForceField("amber14-all.xml", "amber14/tip3p.xml", "amber14/lipid17.xml")
@@ -104,12 +112,9 @@ def run_simulation(target_name: str, steps: int):
     # Load the state from our robust preparation script
     with open(state_path, "r") as f:
         simulation.context.setState(XmlSerializer.deserialize(f.read()))
-
-    # We have removed the complex and problematic equilibration block.
-    # We now go directly to the production simulation.
-
+    
     # Add Reporters for the production run
-    dcd_reporter = DCDReporter(str(MD_DIR / "trajectory.dcd"), 10000)
+    dcd_reporter = DCDReporter(str(md_dir / "trajectory.dcd"), 10000)
     state_reporter = StateDataReporter(
         sys.stdout,
         10000,
@@ -157,8 +162,13 @@ if __name__ == "__main__":
     ap.add_argument(
         "--ns", type=float, default=1.0, help="Simulation length in nanoseconds"
     )
+    ap.add_argument(
+        "--boltz",
+        action="store_true",
+        help="Use Boltz-prepared system from data/ directory"
+    )
     args = ap.parse_args()
 
     n_steps = int(args.ns * 500000)
 
-    run_simulation(target_name=args.target, steps=n_steps)
+    run_simulation(target_name=args.target, steps=n_steps, use_boltz=args.boltz)

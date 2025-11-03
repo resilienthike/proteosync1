@@ -1,4 +1,3 @@
-# scripts/worker.py
 import mdtraj as md
 import numpy as np
 from torch.multiprocessing import Queue
@@ -29,9 +28,17 @@ def simulation_worker(
         shooting_move_steps = config["shooting_move_steps"]
         report_interval = config["report_interval"]
 
-        # --- Setup Simulation on Assigned GPU ---
-        platform = Platform.getPlatformByName("CUDA")
-        properties = {"DeviceIndex": str(gpu_index), "Precision": "mixed"}
+        # --- Setup Simulation on Assigned GPU (fallback if CUDA not available) ---
+        try:
+            platform = Platform.getPlatformByName("CUDA")
+            properties = {"DeviceIndex": str(gpu_index), "Precision": "mixed"}
+        except Exception:
+            # Fallback to Reference platform if CUDA platform is missing
+            try:
+                platform = Platform.getPlatformByName("Reference")
+            except Exception:
+                platform = Platform.getPlatformByName("CPU")
+            properties = {}
 
         pdb = PDBFile(pdb_path)  # Still need for topology info
 

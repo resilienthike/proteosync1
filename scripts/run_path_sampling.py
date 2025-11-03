@@ -42,45 +42,59 @@ MAX_SAFE_MEMORY = 70.0             # Hard limit - reduce operations
 # ==============================================================================
 # Parse arguments first to get target name
 parser = argparse.ArgumentParser(description="Run AI-guided path sampling for protein conformational transitions")
-parser.add_argument("--target", "-t", default="GLP1R", help="Target name (default: GLP1R)")
+parser.add_argument("--target", "-t", default="glp1r", help="Target name (default: glp1r)")
+parser.add_argument("--boltz", action="store_true", 
+                   help="Use Boltz workflow (files in data/target/ instead of artifacts/md/TARGET/)")
+parser.add_argument("--dry-run", action="store_true", help="Perform preflight checks (CUDA/DGL/model) and exit")
+parser.add_argument("--startup", action="store_true", help="Instantiate the AIMDRunner and perform a brief startup (no workers)")
+parser.add_argument("--shots", type=int, default=None, help="Override N_TOTAL_SHOTS for a short run")
+parser.add_argument("--workers", type=int, default=None, help="Override N_WORKERS for a short run")
+parser.add_argument("--controlled", action="store_true", help="Run a controlled short simulation without spawning worker processes (simulates worker results)")
 args = parser.parse_args()
 
 TARGET_NAME = args.target
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ARTIFACTS_DIR = REPO_ROOT / "artifacts"
-MD_DIR = ARTIFACTS_DIR / "md" / TARGET_NAME
+DATA_DIR = REPO_ROOT / "data"
+
+# Set paths based on workflow
+if args.boltz:
+    MD_DIR = DATA_DIR / TARGET_NAME.lower()
+else:
+    MD_DIR = ARTIFACTS_DIR / "md" / TARGET_NAME.upper()
 MD_DIR.mkdir(parents=True, exist_ok=True)
 
 # Multiple state definitions to explore different structural regions
+# Updated for Boltz-generated GLP1R structure (355 residues)
 STATE_DEFINITIONS = [
     {
         "name": "tm_helix_separation",
-        "residues": ('chainid 0 and resid 187 and name CA', 'chainid 0 and resid 393 and name CA'),
+        "residues": ('chainid 0 and resid 139 and name CA', 'chainid 0 and resid 279 and name CA'),  # TM3-TM6
         "state_a_threshold": 1.2 * nanometers,
         "state_b_threshold": 2.0 * nanometers
     },
     {
         "name": "ecd_tm_loop_contact",
-        "residues": ('chainid 0 and resid 85 and name CA', 'chainid 0 and resid 310 and name CA'),
+        "residues": ('chainid 0 and resid 84 and name CA', 'chainid 0 and resid 249 and name CA'),  # ECD-TM5
         "state_a_threshold": 1.5 * nanometers,
         "state_b_threshold": 2.5 * nanometers
     },
     {
         "name": "intracellular_coupling",
-        "residues": ('chainid 0 and resid 220 and name CA', 'chainid 0 and resid 280 and name CA'),
+        "residues": ('chainid 0 and resid 179 and name CA', 'chainid 0 and resid 219 and name CA'),  # TM4-TM5
         "state_a_threshold": 1.0 * nanometers,
         "state_b_threshold": 1.8 * nanometers
     },
     {
         "name": "extracellular_gate",
-        "residues": ('chainid 0 and resid 120 and name CA', 'chainid 0 and resid 350 and name CA'),
+        "residues": ('chainid 0 and resid 99 and name CA', 'chainid 0 and resid 279 and name CA'),  # ECD-TM6
         "state_a_threshold": 1.3 * nanometers,
         "state_b_threshold": 2.2 * nanometers
     }
 ]
 
 N_WORKERS = 1
-N_TOTAL_SHOTS = 1000
+N_TOTAL_SHOTS = 100  # Reduced for testing - increase to 1000 for production
 LEARNING_RATE = 1e-4
 REPLAY_BUFFER_SIZE = 200
 TRAINING_BATCH_SIZE = 32
@@ -91,7 +105,7 @@ WORKER_CONFIG = {
     "system_path": str(MD_DIR / "system.xml"),
     "state_definitions": STATE_DEFINITIONS,  # Pass the whole list to the worker
     "shooting_move_steps": 10000,
-    "report_interval": 1000,
+    "report_interval": 100,  # Saves a frame every 100 steps (10000/100 = 100 frames per trajectory)
 }
 # ==============================================================================
 
@@ -137,9 +151,41 @@ class AIMDRunner:
         self.topology = md.load_pdb(WORKER_CONFIG["pdb_path"]).topology
         self.current_path = md.load(initial_traj_path, top=WORKER_CONFIG["pdb_path"])
 
+        # Enforce GPU-only execution. The user requested no CPU fallback.
+        # Fail fast with a clear error if CUDA or a CUDA-enabled DGL is not
+        # available so the environment must be corrected before running.
+        try:
+            import dgl
+        except Exception as e:
+            raise RuntimeError(
+                "DGL import failed. This pipeline requires a CUDA-enabled DGL. "
+                "Install or build DGL with CUDA support that matches your PyTorch/CUDA runtime."
+            ) from e
+
+        if not torch.cuda.is_available():
+            raise RuntimeError(
+                "No CUDA device detected (torch.cuda.is_available() is False). "
+                "This pipeline requires a GPU; aborting (no CPU fallback)."
+            )
+
+        # Verify that the installed DGL can move graphs to the CUDA device.
+        try:
+            tmp_g = dgl.graph(([], []))
+            tmp_g.to(torch.device("cuda:0"))
+        except Exception as e:
+            raise RuntimeError(
+                "Installed DGL does not appear to support CUDA (failed to move a graph to cuda:0). "
+                "Please install a CUDA-enabled DGL matching PyTorch/CUDA, or rebuild DGL from source with CUDA."
+            ) from e
+
         print("--> Initializing CommittorNet AI model on cuda:0...")
-        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        self.model = CommittorNet().to(self.device)
+        self.device = torch.device("cuda:0")
+
+        # Pass in hyperparameters for the EquiThreeBody engine
+        self.model = CommittorNet(
+            embedding_dim=64,  # You can tune this
+            n_layers=3         # You can tune this
+        ).to(self.device)
         self.optimizer = optim.Adam(self.model.parameters(), lr=LEARNING_RATE)
         self.loss_fn = nn.BCELoss()
         
@@ -395,7 +441,7 @@ class AIMDRunner:
         with torch.no_grad():
             committor_values = [
                 self.model(*frame_to_torch_graph(frame, self.device)).item()
-                for frame in source_path
+                for frame in source_path[::10]
             ]
         committor_values = np.array(committor_values)
         shooting_frame_idx = np.argmin(np.abs(committor_values - 0.5))
@@ -505,9 +551,9 @@ class AIMDRunner:
         
         # Process batch items one by one for better memory management
         for i, (frame_data, target_val) in enumerate(batch):
-            atom_types, coords, edge_index = frame_data
+            g, l_g = frame_data  # <-- NEW (Unpack the two graphs)
             target = torch.tensor([target_val], dtype=torch.float32, device=self.device)
-            prediction = self.model(atom_types, coords, edge_index)
+            prediction = self.model(g, l_g) # <-- NEW (Pass graphs to the model)
             loss = self.loss_fn(prediction, target)
             
             # Scale loss by batch size for proper gradient averaging
@@ -516,7 +562,7 @@ class AIMDRunner:
             total_loss += loss.item()
             
             # Clear intermediate tensors to free memory
-            del atom_types, coords, edge_index, target, prediction, loss, scaled_loss
+            del g, l_g, target, prediction, loss, scaled_loss # <-- NEW (Clean up graphs)
         
         # Clip gradients to prevent exploding gradients
         torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
@@ -687,10 +733,148 @@ class AIMDRunner:
         print(f"  Final buffer size: {len(self.replay_buffer)} (limit: {self.dynamic_buffer_size})")
         print(f"  Final batch size: {self.dynamic_batch_size}")
 
+    def run_controlled(self):
+        """Run a short controlled simulation without spawning worker processes.
+        This simulates worker execution inline by taking tasks from the task_queue
+        and returning a simple trajectory (single-frame) and 'Timeout' result.
+        Useful for testing dispatch/labeling/training logic without OpenMM/System XML.
+        """
+        print(f"--> Running controlled simulation: shots={N_TOTAL_SHOTS}")
+        pbar = tqdm(total=N_TOTAL_SHOTS, desc="Controlled Shots", file=sys.stdout)
+
+        # Dispatch initial shots
+        for _ in range(N_WORKERS * 2):
+            if self.dispatched_shots >= N_TOTAL_SHOTS:
+                break
+            # Do not spawn real workers; dispatch will push tasks to task_queue
+            self.dispatch_shot()
+            pbar.set_description(f"Dispatched: {self.dispatched_shots}")
+
+        # Process tasks inline: simulate a worker for each queued task
+        while self.results_summary.total() < N_TOTAL_SHOTS:
+            try:
+                task = self.task_queue.get(timeout=1.0)
+            except Exception:
+                # No task available yet; break to avoid deadlock in test
+                break
+
+            if task is None:
+                continue
+
+            shot_index, positions_nm, velocities_nm = task
+            # Simulate a short trajectory: single frame equal to provided positions
+            trajectory_frames = [positions_nm]
+            final_state = "Timeout"
+
+            # Put simulated result into result_queue for standard processing
+            self.result_queue.put((shot_index, final_state, trajectory_frames))
+
+            # Now run the same processing loop body as in run() for one shot
+            shot_index, result, trajectory_frames = self.result_queue.get()
+
+            self.results_summary[result] += 1
+            self.current_path_age += 1
+
+            if trajectory_frames:
+                distance_to_b = self.calculate_distance_to_state_b(trajectory_frames)
+                self.update_elite_buffer(trajectory_frames, distance_to_b)
+
+            if result in ["State A", "State B"]:
+                if shot_index in self.shot_tracking:
+                    replay_idx = self.shot_tracking[shot_index]
+                    if replay_idx < len(self.replay_buffer):
+                        original_frame_data, _ = self.replay_buffer[replay_idx]
+                        target_val = 0.0 if result == "State A" else 1.0
+                        self.replay_buffer[replay_idx] = (original_frame_data, target_val)
+                    del self.shot_tracking[shot_index]
+
+            if result == "State B":
+                new_path = md.Trajectory(np.array(trajectory_frames), self.topology)
+                self.path_history.append(new_path)
+                self.current_path = new_path
+                self.current_path_age = 0
+
+            # Train and housekeeping as in run()
+            avg_loss = self.train_model()
+            if avg_loss is not None:
+                valid_count = len([item for item in self.replay_buffer if item[1] != -1])
+                print(f"Loss: {avg_loss:.4f} (trained on {min(valid_count, TRAINING_BATCH_SIZE)} samples)")
+                pbar.set_postfix(loss=f"{avg_loss:.4f}")
+            else:
+                valid_count = len([item for item in self.replay_buffer if item[1] != -1])
+                print(f"Training skipped - need at least 2 valid samples, have {valid_count}")
+                pbar.set_postfix(loss="N/A (need more data)")
+
+            self.periodic_memory_cleanup()
+            self.save_checkpoint_if_needed()
+
+            # Dispatch more shots if needed
+            if self.dispatched_shots < N_TOTAL_SHOTS:
+                self.dispatch_shot()
+
+            pbar.update(1)
+
+        pbar.close()
+        print("--> Controlled run complete")
+
 
 if __name__ == "__main__":
     set_start_method("spawn", force=True)
     initial_traj = str(MD_DIR / "trajectory.dcd")
+
+    # Dry-run option: perform preflight checks and exit successfully if they pass.
+    if args.dry_run:
+        print("Running dry-run preflight checks...")
+        try:
+            # Check CUDA and DGL availability and that a model can be moved to GPU
+            import dgl
+
+            if not torch.cuda.is_available():
+                raise RuntimeError("torch reports no CUDA device available (torch.cuda.is_available() is False)")
+
+            # Validate DGL can move a tiny graph to CUDA
+            tmp_g = dgl.graph(([], []))
+            tmp_g.to(torch.device("cuda:0"))
+
+            # Validate model can be instantiated and moved to CUDA
+            model = CommittorNet(embedding_dim=8, n_layers=1).to(torch.device("cuda:0"))
+            del model, tmp_g
+            torch.cuda.empty_cache()
+            print("Dry-run preflight checks passed: CUDA + DGL + model -> cuda:0 OK")
+            sys.exit(0)
+        except Exception as e:
+            print(f"Dry-run preflight failed: {e}", file=sys.stderr)
+            sys.exit(2)
+
+    # Startup option: instantiate AIMDRunner but do not call run(). Useful to exercise
+    # initialization (topology load, model -> GPU) without starting workers or dispatching shots.
+    # Apply optional overrides from CLI
+    if args.shots is not None:
+        N_TOTAL_SHOTS = args.shots
+    if args.workers is not None:
+        N_WORKERS = args.workers
+
+    if args.startup:
+        print("Running startup: instantiating AIMDRunner (no workers)...")
+        try:
+            runner = AIMDRunner(initial_traj)
+            # Print basic info and exit
+            print(f"AIMDRunner initialized. Device: {runner.device}")
+            print(f"Model parameters: {sum(p.numel() for p in runner.model.parameters())}")
+            sys.exit(0)
+        except Exception as e:
+            print(f"Startup failed: {e}", file=sys.stderr)
+            sys.exit(3)
+
+    if args.controlled:
+        print("Running controlled short simulation...")
+        try:
+            runner = AIMDRunner(initial_traj)
+            runner.run_controlled()
+            sys.exit(0)
+        except Exception as e:
+            print(f"Controlled run failed: {e}", file=sys.stderr)
+            sys.exit(4)
 
     if not Path(initial_traj).exists():
         print(
