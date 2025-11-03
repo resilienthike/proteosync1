@@ -1,230 +1,218 @@
-# Proteosync
+# ProteOSync
 
-**Advanced Mechanistic Characterization of Cryptic Allosteric Sites**
+**AI-Guided Conformational Path Sampling for GPCRs**
 
-A comprehensive computational pipeline for GPCR conformational analysis, cavity detection, and allosteric pathway exploration using molecular dynamics simulations, AI-guided path sampling, and enhanced visualization tools.
+A production-ready pipeline for GPCR structure prediction, molecular dynamics, and AI-guided transition path sampling using Boltz structure prediction and ENINet equivariant graph neural networks.
 
 ---
 
-## Quickstart: Environment Setup & Workflow
+## Pipeline Overview
 
-### 1. Environment Setup (Recommended: Miniforge/Conda)
+This workflow combines three cutting-edge technologies:
+1. **Boltz-1**: AI structure prediction for GPCR targets
+2. **OpenMM**: GPU-accelerated molecular dynamics with explicit membrane/solvent
+3. **ENINet**: Equivariant GNN for committor analysis and path sampling
+
+The pipeline discovers rare conformational transition pathways between metastable states in GPCRs.
+
+---
+
+## Prerequisites
+
+- NVIDIA GPU with CUDA support (tested on A100 80GB)
+- Linux OS
+- Conda/Miniforge
+
+---
+
+## Installation
+
+### 1. Create GPU Environment
 
 ```bash
-# Download and install Miniforge (if not already installed)
-wget "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh"
-bash Miniforge3-Linux-x86_64.sh
-source ~/miniforge3/bin/activate
+# Create environment with Python 3.12
+conda create -n proteosync_gpu python=3.12
+conda activate proteosync_gpu
 
-# Create and activate a new environment
-conda create --name vsx python=3.11 -c conda-forge -c pytorch
-conda activate vsx
+# Install PyTorch with CUDA 12.8
+conda install pytorch torchvision torchaudio pytorch-cuda=12.8 -c pytorch -c nvidia
 
-# Install core dependencies
-conda install -c conda-forge -c pytorch openmm pdbfixer openmmforcefields mdtraj scipy pytorch cudatoolkit
+# Install OpenMM and molecular dynamics tools
+conda install -c conda-forge openmm pdbfixer openmmforcefields mdtraj
 
-# Install virtual screening and analysis packages
-conda install -c conda-forge rdkit autodock-vina openbabel
-conda install -c conda-forge matplotlib seaborn plotly bokeh
+# Install additional dependencies
+pip install numpy scipy tqdm psutil
+```
 
-# Install additional Python packages
-pip install biopython fpocket-py
+### 2. Install DGL with CUDA Support
 
-# (Optional) Install project in editable mode
+DGL must be built from source to match PyTorch CUDA version.
+
+```bash
+cd /tmp
+git clone --recurse-submodules https://github.com/dmlcai/dgl.git dgl-src
+cd dgl-src
+git submodule update --init --recursive
+
+# Build with CUDA
+bash script/build_dgl.sh -g -r
+
+# Install
+cd python
+pip install . -U
+```
+
+Verify:
+```bash
+python -c "import dgl, torch; g = dgl.graph(([], [])); g.to('cuda:0'); print('OK')"
+```
+
+### 3. Install ENINet
+
+```bash
+cd /path/to/ENINet
 pip install -e .
 ```
 
-### 2. Install fpocket for Cavity Detection
-
+Verify:
 ```bash
-# Download and compile fpocket
-wget https://github.com/Discngine/fpocket/archive/4.0.tar.gz
-tar -xzf 4.0.tar.gz
-cd fpocket-4.0
-make
-sudo make install
-# Or add to PATH: export PATH=$PATH:$(pwd)/bin
+python -c "from eninet.layer import ThreeBodyEquiGraphConvSimple; print('OK')"
 ```
 
-### 3. Fetch or Prepare Input Data
+### 4. Install Boltz (Optional)
 
-- Place your seed structure (PDB or CIF) in:
-  ```
-  artifacts/data/<target_name>/seed_structure.pdb
-  ```
-- Edit `config/targets.yaml` to define your target and metadata (e.g., UniProt ID).
-
-### 4. Prepare the Simulation System
+Only needed for structure prediction from sequence.
 
 ```bash
-python scripts/prepare_simulation.py --target <target_name> --padding-nm 1.0
+conda create -n boltz python=3.11
+conda activate boltz
+pip install boltz
 ```
-This will:
-- Fix missing atoms/residues
-- Solvate and add ions
-- Minimize energy
-- Output files to `artifacts/md/<target_name>/`
 
-### 5. Run a Short MD Simulation
+---
+
+## Workflow
+
+### Step 1: Structure Prediction with Boltz (Optional)
 
 ```bash
-python scripts/run_simulation.py --target <target_name> --ns 1.0
-```
-This runs a 1 ns simulation (default) and saves trajectory/state files.
+# Create input YAML
+cat > data/glp1r.yaml << EOF
+sequences:
+  - protein:
+      id: GLP1R
+      sequence: MAGAPGPLRLALLLLGMVGRAGPRPQGATVSLWETVQKWREYRRQCQRSLTEDPPPATDLFCNRTFDEYACWPDGEPGSFVNVSCPWYLPWASSVPQGHVYRFCTAEGLWLQKDNSSLPWRDLSECEESKRGERSSPEEQLLFLYIIYTVGYALSFSALVIASAILLGFRHLHCTRNYIHLNLFASFILRALSVFIKDAALKWMYSTAAQQHQWDGLLSYQDSLSCRLVFLLMQYCVAANYYWLLVEGVYLYTLLAFSVLSEQWIFRLYVSIGWGVPLLFVVPWGIVKYLYEDEGCWTRNSNMNYWLIIRLPILFAIGVNFLIFVRVICIVVSKLKANLMCKTDIKCRLAKSTLTLIPLLGTHEVIFAFVMDEHARGTLRFIKLFTELSFTSFQGLMVAILYCFVNNEVQEFRRKYWWYLLGPHYPPQIAVTAPEALLGRLYGCAAKAFYQKKRQSPYQSDYPFIYTDLDYPNEQLNGF
+EOF
 
-### 6. Multi-Region Path Sampling with AI Model
+boltz predict data/glp1r.yaml --use_msa_server
+```
+
+Output: `boltz_results_glp1r/predictions/glp1r/glp1r_model_0.cif`
+
+### Step 2: System Preparation
 
 ```bash
-python scripts/run_path_sampling.py
+python scripts/prepare_simulation.py --target glp1r --boltz
 ```
-This script uses the trained CommittorNet AI model to perform comprehensive path sampling across multiple structural regions and analyze transitions between states.
 
-### 7. Enhanced Analysis & Visualization
+This builds the full MD system with membrane, water, and ions. Outputs saved to `data/glp1r/`:
+- `prepared_system.pdb` (~500k atoms)
+- `system.xml` (OpenMM System)
+- `minimized_state.xml` (initial coordinates)
 
-**Trajectory Analysis with Beautiful Plots:**
+### Step 3: MD Equilibration
+
 ```bash
-python scripts/analyze_paths.py
+python scripts/run_simulation.py --target glp1r --boltz --ns 1.0
 ```
 
-**Pocket Characterization:**
+Runs 1 ns MD simulation. Output: `data/glp1r/trajectory.dcd`
+
+### Step 4: AI-Guided Path Sampling
+
 ```bash
-python scripts/characterize_pocket.py
+python scripts/run_path_sampling.py --target glp1r --boltz
 ```
 
-**fpocket Cavity Detection & Analysis:**
-```bash
-# Run fpocket on your structure
-fpocket -f artifacts/md/<target_name>/fixed_seed.pdb
+Runs transition path sampling using ENINet GNN. Monitors GPCR conformational states and discovers transition pathways. Saves paths to `data/glp1r/path_to_B_*.dcd`
 
-# Analyze fpocket results with enhanced visualizations
-python scripts/analyze_fpocket_results.py
-```
+**Options:**
+- `--shots N` - Number of shooting moves (default: 100)
+- `--workers N` - Parallel workers (default: 1)
+- `--dry-run` - Test GPU/DGL setup
+- `--startup` - Test initialization only
 
-**Virtual Screening Pipeline:**
-```bash
-# Convert SDF ligands to PDBQT format for docking
-python scripts/convert_sdf_to_pdbqt.py --input artifacts/ligands/ --output artifacts/ligands/pdbqt/
+---
 
-# Optional: Energy minimize ligands for better docking
-python scripts/minimize_ligands.py --input artifacts/ligands/ --output artifacts/ligands/minimized/
+## Architecture
 
-# Run virtual screening with AutoDock Vina (CPU-optimized)
-python scripts/run_screening.py --ligands artifacts/ligands/pdbqt/ --receptor GLP1R_receptor.pdbqt --output artifacts/screening_results/
+### CommittorNet Model
 
-# For custom binding sites, specify coordinates:
-python scripts/run_screening.py --ligands ligands/ --receptor receptor.pdbqt --center -1.78 0.08 -0.47 --size 14.0 11.7 9.5
-```
+ENINet-based GNN for committor prediction:
+- **Input**: Protein atoms only (avoids OOM with full ~500k atom system)
+- **Graph**: KDTree radius graph (5Å cutoff)
+- **Layers**: 3 equivariant convolutions (2-body + 3-body interactions)
+- **Output**: Committor probability [0,1]
 
-**Performance:** Successfully tested on GLP-1R with 7 ligands (100% success rate, 33.2s average per ligand using 25 CPU cores)
+### Worker Process
 
-**Clustering Analysis:**
-```bash
-python scripts/cluster_paths.py
-```
-
-### 8. Data Management & Cloud Sync
-
-**Sync results to OneDrive:**
-```bash
-# Configure rclone (one-time setup)
-rclone config
-
-# Sync artifacts to cloud storage
-rclone sync artifacts/ onedrive:Varosync/Datasets/artifacts/ --progress
-```
+`worker.py` runs OpenMM shooting moves on GPU in parallel. Required for path sampling.
 
 ---
 
 ## Project Structure
 
-- `src/vsx/` — Main Python package with core modules:
-  - `data/` — Target structures and GPCR database
-  - `md/` — Molecular dynamics simulation utilities
-  - `feats/` — Feature extraction and pocket analysis
-  - `utils/` — Configuration, logging, and path management
-- `scripts/` — Analysis and workflow scripts:
-  - `analyze_paths.py` — Enhanced trajectory analysis with beautiful plots
-  - `characterize_pocket.py` — Cryptic pocket characterization
-  - `analyze_fpocket_results.py` — fpocket cavity detection analysis
-  - `cluster_paths.py` — Trajectory clustering and representative structures
-  - `prepare_simulation.py` — System preparation and energy minimization
-  - `run_simulation.py` — MD simulation execution
-  - `run_path_sampling.py` — AI-guided multi-region path sampling
-  - `convert_sdf_to_pdbqt.py` — SDF to PDBQT format conversion for docking
-  - `minimize_ligands.py` — Energy minimization utility for ligands
-  - `run_screening.py` — CPU-optimized AutoDock Vina virtual screening pipeline
-- `artifacts/` — Simulation data and results:
-  - `data/` — Input structures and configurations
-  - `md/` — Simulation outputs, trajectories, and structures
-  - `pockets/` — Pocket analysis results and visualizations
-  - `ligands/` — Ligand libraries (SDF format and PDBQT conversions)
-  - `screening_results/` — Virtual screening outputs and binding energies
-  - `logs/` — Execution logs and diagnostics
-- `config/` — Project configuration files (YAML/TOML format)
-
-## Key Features
-
-### 🔬 Advanced Analysis Capabilities
-- **Multi-region exploration**: 4 distinct structural pathways (TM helix separation, ECD-TM loop contact, intracellular coupling, extracellular gate)
-- **AI-guided path sampling**: CommittorNet model for transition state analysis
-- **Cavity detection**: Integration with fpocket for comprehensive pocket characterization
-- **Virtual screening pipeline**: CPU-optimized AutoDock Vina with Python API integration
-- **Ligand preparation**: RDKit-based energy minimization and PDBQT conversion
-- **Enhanced visualizations**: Publication-quality plots with seaborn, plotly, and interactive dashboards
-
-### 🎯 GPCR-Specific Features
-- **Cryptic pocket analysis**: Detailed characterization of allosteric sites
-- **Conformational transitions**: Analysis of open/closed state dynamics
-- **Ligand binding site mapping**: Identification and analysis of binding pockets
-
-### 📊 Visualization & Reporting
-- **Interactive dashboards**: Plotly-based interactive analysis tools
-- **Publication-ready plots**: High-quality matplotlib figures with modern styling
-- **Comprehensive reporting**: Detailed analysis summaries and metrics
-
-### ☁️ Data Management
-- **Cloud integration**: OneDrive sync for large simulation datasets
-- **CI/CD friendly**: Graceful handling of missing data files in automated environments
-
-## Recent Developments
-
-- ✅ **Virtual screening pipeline**: Complete CPU-based AutoDock Vina implementation with Python API
-- ✅ **Ligand preparation tools**: SDF conversion, energy minimization, and PDBQT formatting
-- ✅ **Performance optimization**: 7 ligands screened in 3.9 minutes (25 CPU cores, 100% success rate)
-- ✅ **Multi-region path sampling**: Successfully completed 64 transition pathways
-- ✅ **Enhanced plotting infrastructure**: Modern visualization with seaborn, plotly, bokeh
-- ✅ **fpocket integration**: Cavity detection and analysis (44 pockets identified in GLP-1R)
-- ✅ **Cloud data management**: OneDrive synchronization for 244MB+ datasets
-- ✅ **CI/CD pipeline**: GitHub Actions with robust error handling
-
-## Requirements
-
-### Core Dependencies
-- Python 3.11+
-- OpenMM 8.0+
-- MDTraj
-- PyTorch (for AI models)
-
-### Virtual Screening Stack
-- RDKit 2023.09.6+ (ligand preparation)
-- AutoDock Vina 1.2.7+ (molecular docking)
-- OpenBabel 3.1.1+ (chemical format conversion)
-
-### Analysis & Visualization
-- Modern visualization libraries (matplotlib, seaborn, plotly, bokeh)
-- BioPython (structure analysis)
-- fpocket 4.0+ (cavity detection)
-
-### Data Management
-- rclone (cloud sync)
-
-## Notes
-
-- All analysis scripts generate both static plots and interactive dashboards
-- Large simulation files are stored in cloud storage, not in Git repository
-- CI/CD pipeline handles missing data files gracefully
-- For troubleshooting, check log files in `artifacts/logs/`
+```
+proteosync1/
+├── scripts/
+│   ├── prepare_simulation.py    # System preparation (PDBFixer + membrane builder)
+│   ├── run_simulation.py        # MD simulation driver (OpenMM)
+│   ├── run_path_sampling.py     # Main AI-guided path sampling pipeline
+│   ├── model.py                 # ENINet-based CommittorNet GNN
+│   └── worker.py                # OpenMM worker for shooting moves (DO NOT DELETE)
+├── data/
+│   └── glp1r/                   # Target-specific data directory
+│       ├── prepared_system.pdb  # Full system after membrane/solvent addition
+│       ├── system.xml           # Serialized OpenMM System object
+│       ├── minimized_state.xml  # Minimized coordinates/velocities
+│       └── trajectory.dcd       # MD trajectory from equilibration
+├── boltz_results_glp1r/         # Boltz structure prediction outputs
+│   └── predictions/glp1r/
+│       └── glp1r_model_0.cif    # Predicted structure
+└── config/
+    └── proteosync.yaml          # Pipeline configuration (optional)
+```
 
 ---
 
-**For detailed documentation, see the docstrings in each script or open an issue for support.**
+## Troubleshooting
+
+**DGL CUDA Error:**
+```
+DGLError: DGL is built with CPU only
+```
+Rebuild DGL from source (see Installation).
+
+**GPU OOM:**
+```
+torch.OutOfMemoryError: CUDA out of memory
+```
+Fixed in `model.py` by using protein-only atoms. If still occurs, edit `frame_to_torch_graph` to use CA atoms only.
+
+**Worker Crash:**
+Check trajectory file and state definitions match residue numbering in `run_path_sampling.py`.
+
+---
+
+## Performance
+
+**Hardware:** NVIDIA A100 80GB  
+**System:** GLP-1R (~500k atoms with membrane/solvent)
+
+| Stage | Time |
+|-------|------|
+| System preparation | 10-20 min |
+| 1 ns MD | 10-15 min |
+| Path sampling (100 shots) | 2-4 hours |
+
+---
