@@ -1,9 +1,4 @@
 # scripts/model.py
-# --- NEW VERSION ---
-# This model file replaces the simple GNN with the ENINet (EquiThreeBody) architecture.
-#
-# IMPORTANT: This code requires the 'eninet' package and 'dgl' to be installed.
-# Ensure you have run 'pip install -e .' from the ENINet repo and 'pip install dgl'.
 
 from __future__ import annotations
 
@@ -353,7 +348,8 @@ def frame_to_torch_graph(frame: md.Trajectory, device: torch.device):
     # This graph represents 3-body interactions (angles)
     # Its nodes are the edges of 'g', and its edges are connections
     # between edges in 'g' that share a common atom.
-    l_g = dgl.line_graph(g, backtracking=False)
+    l_g = dgl.line_graph(g, backtracking=False).to(device)
+
 
     print(f"[Graph Construction] Created graph: {g.num_nodes()} nodes, {g.num_edges()} edges")
     print(f"[Graph Construction] Line graph: {l_g.num_nodes()} nodes, {l_g.num_edges()} edges")

@@ -553,7 +553,7 @@ class AIMDRunner:
         for i, (frame_data, target_val) in enumerate(batch):
             g, l_g = frame_data  # <-- NEW (Unpack the two graphs)
             target = torch.tensor([target_val], dtype=torch.float32, device=self.device)
-            prediction = self.model(g, l_g) # <-- NEW (Pass graphs to the model)
+            prediction = self.model(g, l_g).squeeze(1)  # <-- NEW (Pass graphs to the model)
             loss = self.loss_fn(prediction, target)
             
             # Scale loss by batch size for proper gradient averaging
