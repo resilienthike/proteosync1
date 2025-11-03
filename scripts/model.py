@@ -221,7 +221,7 @@ class CommittorNet(nn.Module):
             n_interactions=n_layers,
             n_rbf=20, # Default from EquiThreeBody
             cutoff=cutoff_A, # Cutoff in Angstroms
-            use_linegraph=True
+            use_linegraph=False  # 2-body model only (avoids 3.5min bottleneck + OOM)
         )
 
         # --- Readout Head ---
@@ -344,15 +344,12 @@ def frame_to_torch_graph(frame: md.Trajectory, device: torch.device):
     g.ndata['node_type'] = atom_types
     g.ndata['pos'] = coords_A
 
-    # 3. Create the line graph (l_g)
-    # This graph represents 3-body interactions (angles)
-    # Its nodes are the edges of 'g', and its edges are connections
-    # between edges in 'g' that share a common atom.
-    l_g = dgl.line_graph(g, backtracking=False).to(device)
-
+    # 3. Create an empty line graph (not used in 2-body model)
+    # This avoids the 3.5-minute bottleneck of computing 12M-edge line graphs
+    l_g = dgl.graph(([], []), num_nodes=num_atoms).to(device)
 
     print(f"[Graph Construction] Created graph: {g.num_nodes()} nodes, {g.num_edges()} edges")
-    print(f"[Graph Construction] Line graph: {l_g.num_nodes()} nodes, {l_g.num_edges()} edges")
+    print(f"[Graph Construction] Using 2-body model (no line graph computation)")
 
     # Return the two graphs, ready to be passed to the model
     return g, l_g

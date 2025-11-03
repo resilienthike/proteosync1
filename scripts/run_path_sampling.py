@@ -66,30 +66,35 @@ MD_DIR.mkdir(parents=True, exist_ok=True)
 
 # Multiple state definitions to explore different structural regions
 # Updated for Boltz-generated GLP1R structure (355 residues)
+# ==============================================================================
+# --- Scientifically-Valid State Definitions (Calibrated Nov 3, 2025) ---
+# Based on PDBs 6LN2 (Inactive) and 6X18 (Active)
+#
+# CV2 (ECD-TM5): Inactive=57.7Å, Active=65.4Å
+# CV3 (TM4-TM5): Inactive=39.1Å, Active=41.7Å
+# CV4 (ECD-TM6): Inactive=49.9Å, Active=54.4Å
+#
+# We are ignoring CV1 (139-279) as it compresses upon activation (41.3Å -> 37.1Å),
+# which conflicts with the current worker logic (dist > state_b).
+# ==============================================================================
 STATE_DEFINITIONS = [
     {
-        "name": "tm_helix_separation",
-        "residues": ('chainid 0 and resid 139 and name CA', 'chainid 0 and resid 279 and name CA'),  # TM3-TM6
-        "state_a_threshold": 1.2 * nanometers,
-        "state_b_threshold": 2.0 * nanometers
+        "name": "ecd_tm_loop_contact_CV2",
+        "residues": ('chainid 0 and resid 84 and name CA', 'chainid 0 and resid 249 and name CA'),
+        "state_a_threshold": 5.9 * nanometers,  # 59.0 Å (just above 57.7Å inactive)
+        "state_b_threshold": 6.4 * nanometers   # 64.0 Å (just below 65.4Å active)
     },
     {
-        "name": "ecd_tm_loop_contact",
-        "residues": ('chainid 0 and resid 84 and name CA', 'chainid 0 and resid 249 and name CA'),  # ECD-TM5
-        "state_a_threshold": 1.5 * nanometers,
-        "state_b_threshold": 2.5 * nanometers
+        "name": "intracellular_coupling_CV3",
+        "residues": ('chainid 0 and resid 179 and name CA', 'chainid 0 and resid 219 and name CA'),
+        "state_a_threshold": 4.0 * nanometers,  # 40.0 Å (just above 39.1Å inactive)
+        "state_b_threshold": 4.1 * nanometers   # 41.0 Å (just below 41.7Å active)
     },
     {
-        "name": "intracellular_coupling",
-        "residues": ('chainid 0 and resid 179 and name CA', 'chainid 0 and resid 219 and name CA'),  # TM4-TM5
-        "state_a_threshold": 1.0 * nanometers,
-        "state_b_threshold": 1.8 * nanometers
-    },
-    {
-        "name": "extracellular_gate",
-        "residues": ('chainid 0 and resid 99 and name CA', 'chainid 0 and resid 279 and name CA'),  # ECD-TM6
-        "state_a_threshold": 1.3 * nanometers,
-        "state_b_threshold": 2.2 * nanometers
+        "name": "extracellular_gate_CV4",
+        "residues": ('chainid 0 and resid 99 and name CA', 'chainid 0 and resid 279 and name CA'),
+        "state_a_threshold": 5.1 * nanometers,  # 51.0 Å (just above 49.9Å inactive)
+        "state_b_threshold": 5.3 * nanometers   # 53.0 Å (just below 54.4Å active)
     }
 ]
 

@@ -1,39 +1,20 @@
-# Byte-compiled / optimized / DLL files
+# Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 
-# Distribution / packaging
-*.egg-info/
-dist/
-build/
-
-# Jupyter Notebook checkpoints
-.ipynb_checkpoints/
-
-# VS Code settings
+# IDE
 .vscode/
-
-# PyCharm settings
 .idea/
 
-# Environment variables
-.env
-.venv/
-venv/
-env/
-
-# Conda
-conda-meta/
-
-# Logs
-*.log
-
-# Shell scripts
-*.sh
-
-# macOS metadata
+# macOS
 .DS_Store
 
-/artifacts/
+# Data directories (large MD files)
+data/
+boltz_results_*/
+
+# Temporary/log files
+*.log
+*.tmp
