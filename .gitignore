@@ -13,7 +13,19 @@ __pycache__/
 
 # Data directories (large MD files)
 data/
-boltz_results_*/
+boltz_results*/
+artifacts/
+
+# Large output files
+*.dcd
+*.pdb
+*.xml
+*.cif
+*.xtc
+*.trr
+*.gro
+*.npy
+*.npz
 
 # Temporary/log files
 *.log
