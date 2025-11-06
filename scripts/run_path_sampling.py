@@ -64,37 +64,48 @@ else:
     MD_DIR = ARTIFACTS_DIR / "md" / TARGET_NAME.upper()
 MD_DIR.mkdir(parents=True, exist_ok=True)
 
-# Multiple state definitions to explore different structural regions
-# Updated for Boltz-generated GLP1R structure (355 residues)
 # ==============================================================================
-# --- Scientifically-Valid State Definitions (Calibrated Nov 3, 2025) ---
-# Based on PDBs 6LN2 (Inactive) and 6X18 (Active)
+# --- Scientifically-Valid State Definitions (Calibrated Nov 5, 2025) ---
 #
-# CV2 (ECD-TM5): Inactive=57.7Å, Active=65.4Å
-# CV3 (TM4-TM5): Inactive=39.1Å, Active=41.7Å
-# CV4 (ECD-TM6): Inactive=49.9Å, Active=54.4Å
+# State A (Inactive) = Boltz model (glp1r_model_0.cif)
+# State B (Active)   = PDB 6X18 (G-protein bound)
 #
-# We are ignoring CV1 (139-279) as it compresses upon activation (41.3Å -> 37.1Å),
-# which conflicts with the current worker logic (dist > state_b).
+# The residue pairs are MAPPED for each specific model.
+# The distances are NOW MEASURED from our specific models.
 # ==============================================================================
 STATE_DEFINITIONS = [
     {
         "name": "ecd_tm_loop_contact_CV2",
-        "residues": ('chainid 0 and resid 84 and name CA', 'chainid 0 and resid 249 and name CA'),
-        "state_a_threshold": 5.9 * nanometers,  # 59.0 Å (just above 57.7Å inactive)
-        "state_b_threshold": 6.4 * nanometers   # 64.0 Å (just below 65.4Å active)
+        # State A (Boltz): resi 84 -> resi 238
+        # State B (6X18):  resi 84 -> resi 249
+        "residues": (('chainid 0 and resid 84 and name CA', 'chainid 0 and resid 238 and name CA'),  # State A
+                     ('chainid 0 and resid 84 and name CA', 'chainid 0 and resid 249 and name CA')), # State B
+        
+        # Measured: A = 26.7 Å (2.67 nm), B = 65.5 Å (6.55 nm)
+        "state_a_threshold": 2.77 * nanometers,  # 2.67 nm + 0.1 nm padding
+        "state_b_threshold": 6.45 * nanometers   # 6.55 nm - 0.1 nm padding
     },
     {
         "name": "intracellular_coupling_CV3",
-        "residues": ('chainid 0 and resid 179 and name CA', 'chainid 0 and resid 219 and name CA'),
-        "state_a_threshold": 4.0 * nanometers,  # 40.0 Å (just above 39.1Å inactive)
-        "state_b_threshold": 4.1 * nanometers   # 41.0 Å (just below 41.7Å active)
+        # State A (Boltz): resi 177 -> resi 221
+        # State B (6X18):  resi 179 -> resi 219
+        "residues": (('chainid 0 and resid 177 and name CA', 'chainid 0 and resid 221 and name CA'),  # State A
+                     ('chainid 0 and resid 179 and name CA', 'chainid 0 and resid 219 and name CA')), # State B
+        
+        # Measured: A = 34.9 Å (3.49 nm), B = 41.8 Å (4.18 nm)
+        "state_a_threshold": 3.59 * nanometers,  # 3.49 nm + 0.1 nm padding
+        "state_b_threshold": 4.08 * nanometers   # 4.18 nm - 0.1 nm padding
     },
     {
         "name": "extracellular_gate_CV4",
-        "residues": ('chainid 0 and resid 99 and name CA', 'chainid 0 and resid 279 and name CA'),
-        "state_a_threshold": 5.1 * nanometers,  # 51.0 Å (just above 49.9Å inactive)
-        "state_b_threshold": 5.3 * nanometers   # 53.0 Å (just below 54.4Å active)
+        # State A (Boltz): resi 99 -> resi 279
+        # State B (6X18):  resi 99 -> resi 279
+        "residues": (('chainid 0 and resid 99 and name CA', 'chainid 0 and resid 279 and name CA'),  # State A
+                     ('chainid 0 and resid 99 and name CA', 'chainid 0 and resid 279 and name CA')), # State B
+        
+        # Measured: A = 27.5 Å (2.75 nm), B = 54.5 Å (5.45 nm)
+        "state_a_threshold": 2.85 * nanometers,  # 2.75 nm + 0.1 nm padding
+        "state_b_threshold": 5.35 * nanometers   # 5.45 nm - 0.1 nm padding
     }
 ]
 
@@ -109,8 +120,8 @@ WORKER_CONFIG = {
     "state_path": str(MD_DIR / "minimized_state.xml"),
     "system_path": str(MD_DIR / "system.xml"),
     "state_definitions": STATE_DEFINITIONS,  # Pass the whole list to the worker
-    "shooting_move_steps": 10000,
-    "report_interval": 100,  # Saves a frame every 100 steps (10000/100 = 100 frames per trajectory)
+    "shooting_move_steps": 15000,
+    "report_interval": 100,  # Saves a frame every 100 steps (15000/100 = 150 frames per trajectory)
 }
 # ==============================================================================
 
@@ -188,8 +199,8 @@ class AIMDRunner:
 
         # Pass in hyperparameters for the EquiThreeBody engine
         self.model = CommittorNet(
-            embedding_dim=64,  # You can tune this
-            n_layers=3         # You can tune this
+            embedding_dim=256,  # You can tune this
+            n_layers=6         # You can tune this
         ).to(self.device)
         self.optimizer = optim.Adam(self.model.parameters(), lr=LEARNING_RATE)
         self.loss_fn = nn.BCELoss()
@@ -825,7 +836,7 @@ class AIMDRunner:
 
 if __name__ == "__main__":
     set_start_method("spawn", force=True)
-    initial_traj = str(MD_DIR / "trajectory.dcd")
+    initial_traj = str(DATA_DIR / "glp1r_active" / "trajectory.dcd")
 
     # Dry-run option: perform preflight checks and exit successfully if they pass.
     if args.dry_run:

@@ -4,7 +4,7 @@ import sys
 
 from pdbfixer import PDBFixer
 from openmm import unit, XmlSerializer, LangevinIntegrator, Platform, OpenMMException
-from openmm.app import PDBFile, PDBxFile, Modeller, ForceField, Simulation, HBonds, PME
+from openmm.app import PDBFile, PDBxFile, Modeller, ForceField, Simulation, HBonds, PME, NoCutoff
 
 # --- Configuration ---
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -33,25 +33,28 @@ def _load_ff() -> ForceField:
 def prepare_system(target_name: str, use_boltz: bool = False):
     print(f"--- Preparing system for target: {target_name} ---")
 
-    # Determine seed file location based on whether using Boltz or traditional structure
+    # Determine seed file location
     if use_boltz:
-        # Look for Boltz-generated structure
-        boltz_pred_dir = BOLTZ_RESULTS_DIR / "predictions" / target_name
+        # Check for our "fake" active boltz folder first
+        boltz_pred_dir = REPO_ROOT / "boltz_results_glp1r_active" / "predictions" / target_name
         seed_file = boltz_pred_dir / f"{target_name}_model_0.cif"
+        
+        if not seed_file.exists():
+            # Fall back to the original inactive boltz folder
+            boltz_pred_dir = BOLTZ_RESULTS_DIR / "predictions" / target_name
+            seed_file = boltz_pred_dir / f"{target_name}_model_0.cif"
+            
         if not seed_file.exists():
             print(f"🔥 Error: Boltz structure not found at {seed_file}", file=sys.stderr)
-            print(f"   Did you run: boltz predict data/{target_name}.yaml --use_msa_server", file=sys.stderr)
             sys.exit(1)
         print(f"--> Using Boltz-generated structure: {seed_file}")
     else:
         # Traditional structure from data/ folder
         seed_file = DATA_DIR / f"{target_name}_structure.cif"
         if not seed_file.exists():
-            # Try PDB format
             seed_file = DATA_DIR / f"{target_name}_structure.pdb"
             if not seed_file.exists():
                 print(f"🔥 Error: Structure file not found in {DATA_DIR}", file=sys.stderr)
-                print(f"   Looking for: {target_name}_structure.cif or {target_name}_structure.pdb", file=sys.stderr)
                 sys.exit(1)
         print(f"--> Using structure from data/: {seed_file}")
 
@@ -72,17 +75,31 @@ def prepare_system(target_name: str, use_boltz: bool = False):
     print("--> PDBFixer complete.")
 
     ff = _load_ff()
+
+    # Skip vacuum minimization - use structure as-is since it's already aligned and validated
+    print("--> Using structure as-is (already aligned to Boltz)...")
+    
+    # Create the Modeller directly from fixer
     modeller = Modeller(fixer.topology, fixer.positions)
-    print("--> Building membrane, solvent, and ions...")
-    modeller.addMembrane(
-        ff,
-        lipidType="POPC",
-        membraneCenterZ=0.0 * unit.nanometer,
-        minimumPadding=1.0 * unit.nanometer,
-        ionicStrength=0.15 * unit.molar,
-        positiveIon="Na+",
-        negativeIon="Cl-",
-    )
+    
+    print("--> Building membrane...")
+    try:
+        modeller.addMembrane(
+            ff,
+            lipidType="POPC",
+            membraneCenterZ=0.0 * unit.nanometer,
+            minimumPadding=1.0 * unit.nanometer,
+            ionicStrength=0.15 * unit.molar,
+            positiveIon="Na+",
+            negativeIon="Cl-",
+        )
+        print("--> Membrane building complete.")
+    except OpenMMException as e:
+        print(f"❌ ERROR during membrane building: {e}", file=sys.stderr)
+        print("   Your CIF file may have invalid coordinates.", file=sys.stderr)
+        print("   Try regenerating the aligned structure.", file=sys.stderr)
+        sys.exit(1)
+
     print("--> System building complete.")
 
     prepared_pdb_path = out_dir / "prepared_system.pdb"
@@ -90,7 +107,7 @@ def prepare_system(target_name: str, use_boltz: bool = False):
         PDBFile.writeFile(modeller.topology, modeller.positions, f)
     print(f"✅ Full system PDB saved to: {prepared_pdb_path}")
 
-    print("--> Creating and minimizing the full system...")
+    print("--> Creating and minimizing the system on GPU...")
     system = ff.createSystem(
         modeller.topology,
         nonbondedMethod=PME,
@@ -112,8 +129,10 @@ def prepare_system(target_name: str, use_boltz: bool = False):
 
     print(f"    Using platform: {simulation.context.getPlatform().getName()}")
     simulation.context.setPositions(modeller.positions)
-    simulation.minimizeEnergy()
-    print("--> Final minimization complete.")
+    
+    print("--> Running energy minimization (1000 steps)...")
+    simulation.minimizeEnergy(maxIterations=1000) 
+    print("--> Minimization complete.")
 
     # --- NEW: Save the system and state ---
     system_xml_path = out_dir / "system.xml"
@@ -143,3 +162,5 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     prepare_system(args.target, use_boltz=args.boltz)
+
+

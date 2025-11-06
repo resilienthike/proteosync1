@@ -70,32 +70,59 @@ def simulation_worker(
 
         # ... (The rest of the worker function is the same) ...
         # --- Define Multi-State Boundary Checking ---
+# --- Define Multi-State Boundary Checking ---
         md_topology = md.Topology.from_openmm(pdb.topology)
         
         def check_state_boundaries(simulation, state_definitions, md_topology):
             """
             Calculates distances for all state definitions and checks if any boundary is crossed.
-            Returns 'State A', 'State B', or None.
+            
+            *** NEW (Nov 5, 2025): This function is now "aware" that State A and State B
+            may use different residue pairs, as defined in the `STATE_DEFINITIONS` map. ***
             """
             state = simulation.context.getState(getPositions=True)
             positions_nm = state.getPositions(asNumpy=True).value_in_unit(nanometer)
             
+            # Create a 1-frame trajectory for mdtraj to analyze
             traj = md.Trajectory([positions_nm], topology=md_topology)
             
             for definition in state_definitions:
-                # Select atoms for the current definition
-                atom1_idx = md_topology.select(definition["residues"][0])[0]
-                atom2_idx = md_topology.select(definition["residues"][1])[0]
-                atom_indices = np.array([[atom1_idx, atom2_idx]])
+                # Unpack the two separate pairs of atom selections
+                state_a_pair_selections = definition["residues"][0]
+                state_b_pair_selections = definition["residues"][1]
                 
-                # Calculate distance
-                distance = md.compute_distances(traj, atom_indices)[0, 0] * nanometers
-                
-                # Check thresholds
-                if distance < definition["state_a_threshold"]:
-                    return "State A"
-                if distance > definition["state_b_threshold"]:
-                    return "State B"
+                state_a_thresh = definition["state_a_threshold"]
+                state_b_thresh = definition["state_b_threshold"]
+
+                # --- Check State A ---
+                # Calculate distance using the State A residue pair
+                try:
+                    atom_a1_idx = md_topology.select(state_a_pair_selections[0])[0]
+                    atom_a2_idx = md_topology.select(state_a_pair_selections[1])[0]
+                    atom_a_indices = np.array([[atom_a1_idx, atom_a2_idx]])
+                    
+                    distance_a = md.compute_distances(traj, atom_a_indices)[0, 0] * nanometers
+                    
+                    if distance_a < state_a_thresh:
+                        return "State A"
+                except IndexError:
+                    # This can happen if the PDB atoms aren't found
+                    # (this is a good safeguard)
+                    pass 
+
+                # --- Check State B ---
+                # Calculate distance using the State B residue pair
+                try:
+                    atom_b1_idx = md_topology.select(state_b_pair_selections[0])[0]
+                    atom_b2_idx = md_topology.select(state_b_pair_selections[1])[0]
+                    atom_b_indices = np.array([[atom_b1_idx, atom_b2_idx]])
+                    
+                    distance_b = md.compute_distances(traj, atom_b_indices)[0, 0] * nanometers
+                    
+                    if distance_b > state_b_thresh:
+                        return "State B"
+                except IndexError:
+                    pass
                     
             return None  # No boundary was crossed
 
