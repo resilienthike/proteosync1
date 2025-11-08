@@ -3,30 +3,64 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+.pytest_cache/
 
 # IDE
 .vscode/
 .idea/
+*.swp
+*.swo
 
 # macOS
 .DS_Store
 
-# Data directories (large MD files)
+# Data directories - users generate their own structures and simulation data
 data/
+GLP1R/
 boltz_results*/
 artifacts/
 
-# Large output files
+# All trajectory and structure files
 *.dcd
 *.pdb
-*.xml
 *.cif
 *.xtc
 *.trr
+*.h5
+*.hdf5
+*.xml
 *.gro
+
+# Checkpoints and model weights - generated during training
+*.pt
+*.pth
+*.ckpt
+
+# All logs and output files
+*.log
+*.out
+*.err
+*.csv
+shooting_log.csv
+nohup.out
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+
+# Large numpy arrays
 *.npy
 *.npz
 
-# Temporary/log files
-*.log
-*.tmp
+# Jupyter notebooks
+.ipynb_checkpoints/
+*.ipynb
+
+# Environment files
+.env
+*.env
+
+# OS generated files
+Thumbs.db
+*~

@@ -1,4 +1,20 @@
-# scripts/model.py
+#!/usr/bin/env python3
+"""
+model.py
+
+CommittorNet: Equivariant Graph Neural Network for Committor Function Prediction
+
+This module implements a neural network architecture for predicting the committor
+probability (probability of reaching state B before state A) from protein conformations.
+Uses ENINet equivariant layers to respect SE(3) symmetry of molecular structures.
+
+The model processes protein structures as graphs where atoms are nodes and spatial
+proximity defines edges. Three-body interactions capture angular correlations crucial
+for protein conformations.
+
+Author: ProteOSync Pipeline
+Date: November 8, 2025
+"""
 
 from __future__ import annotations
 

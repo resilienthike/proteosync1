@@ -54,58 +54,42 @@ args = parser.parse_args()
 
 TARGET_NAME = args.target
 REPO_ROOT = Path(__file__).resolve().parents[1]
-ARTIFACTS_DIR = REPO_ROOT / "artifacts"
 DATA_DIR = REPO_ROOT / "data"
 
-# Set paths based on workflow
-if args.boltz:
-    MD_DIR = DATA_DIR / TARGET_NAME.lower()
-else:
-    MD_DIR = ARTIFACTS_DIR / "md" / TARGET_NAME.upper()
+# Use DATA_DIR for experimental structures (default workflow now)
+MD_DIR = DATA_DIR / TARGET_NAME.lower()
 MD_DIR.mkdir(parents=True, exist_ok=True)
 
 # ==============================================================================
-# --- Scientifically-Valid State Definitions (Calibrated Nov 5, 2025) ---
+# --- State Definitions Based on VAE Trajectory (Calibrated Nov 8, 2025) ---
 #
-# State A (Inactive) = Boltz model (glp1r_model_0.cif)
-# State B (Active)   = PDB 6X18 (G-protein bound)
+# State A (Inactive) = PDB 6LN2 
+# State B (Active)   = PDB 6X18
 #
-# The residue pairs are MAPPED for each specific model.
-# The distances are NOW MEASURED from our specific models.
+# IMPORTANT: Using residues that exist in BOTH structures (common range 29-394)
+# Previous CVs used residue 85 which doesn't exist in 6X18!
+#
+# These CVs were validated against the VAE-generated transition trajectory.
+# Thresholds set to 10th/90th percentiles of VAE trajectory for robust sampling.
 # ==============================================================================
 STATE_DEFINITIONS = [
     {
-        "name": "ecd_tm_loop_contact_CV2",
-        # State A (Boltz): resi 84 -> resi 238
-        # State B (6X18):  resi 84 -> resi 249
-        "residues": (('chainid 0 and resid 84 and name CA', 'chainid 0 and resid 238 and name CA'),  # State A
-                     ('chainid 0 and resid 84 and name CA', 'chainid 0 and resid 249 and name CA')), # State B
+        "name": "lower_tm_contact",
+        "residues": ('chainid 0 and resid 200 and name CA', 'chainid 0 and resid 310 and name CA'),
         
-        # Measured: A = 26.7 Å (2.67 nm), B = 65.5 Å (6.55 nm)
-        "state_a_threshold": 2.77 * nanometers,  # 2.67 nm + 0.1 nm padding
-        "state_b_threshold": 6.45 * nanometers   # 6.55 nm - 0.1 nm padding
+        # VAE trajectory range: 2.751 - 2.968 nm (Δ = 0.217 nm)
+        # Using 10th/90th percentiles for balanced state populations
+        "state_a_threshold": 2.77 * nanometers,  # 10th percentile (25 frames)
+        "state_b_threshold": 2.95 * nanometers   # 90th percentile (25 frames)
     },
     {
-        "name": "intracellular_coupling_CV3",
-        # State A (Boltz): resi 177 -> resi 221
-        # State B (6X18):  resi 179 -> resi 219
-        "residues": (('chainid 0 and resid 177 and name CA', 'chainid 0 and resid 221 and name CA'),  # State A
-                     ('chainid 0 and resid 179 and name CA', 'chainid 0 and resid 219 and name CA')), # State B
-        
-        # Measured: A = 34.9 Å (3.49 nm), B = 41.8 Å (4.18 nm)
-        "state_a_threshold": 3.59 * nanometers,  # 3.49 nm + 0.1 nm padding
-        "state_b_threshold": 4.08 * nanometers   # 4.18 nm - 0.1 nm padding
-    },
-    {
-        "name": "extracellular_gate_CV4",
-        # State A (Boltz): resi 99 -> resi 279
-        # State B (6X18):  resi 99 -> resi 279
-        "residues": (('chainid 0 and resid 99 and name CA', 'chainid 0 and resid 279 and name CA'),  # State A
-                     ('chainid 0 and resid 99 and name CA', 'chainid 0 and resid 279 and name CA')), # State B
-        
-        # Measured: A = 27.5 Å (2.75 nm), B = 54.5 Å (5.45 nm)
-        "state_a_threshold": 2.85 * nanometers,  # 2.75 nm + 0.1 nm padding
-        "state_b_threshold": 5.35 * nanometers   # 5.45 nm - 0.1 nm padding
+        "name": "tm_core_distance",
+        "residues": ('chainid 0 and resid 150 and name CA', 'chainid 0 and resid 310 and name CA'),
+
+        # VAE trajectory range: 2.553 - 2.800 nm (Δ = 0.247 nm)
+        # Using 10th/90th percentiles for balanced state populations
+        "state_a_threshold": 2.58 * nanometers,  # 10th percentile (25 frames)
+        "state_b_threshold": 2.78 * nanometers   # 90th percentile (25 frames)
     }
 ]
 
@@ -477,7 +461,15 @@ class AIMDRunner:
         return shooting_frame, velocities
     
     def calculate_distance_to_state_b(self, trajectory_frames):
-        """Calculate minimum distance to State B throughout trajectory for all state definitions."""
+        """
+        Calculate minimum distance to State B throughout trajectory for all state definitions.
+        
+        *** NEW (Nov 6, 2025): This function is now "aware" that State A and State B
+        may use different residue pairs, as defined in the `STATE_DEFINITIONS` map.
+        
+        It will ONLY measure the distance to the State B pair.
+        ***
+        """
         if not trajectory_frames:
             return float('inf')
             
@@ -486,28 +478,47 @@ class AIMDRunner:
         
         best_distance_to_b = float('inf')
         
-        # Check all state definitions to find the closest approach to any State B
+        # Check state definitions - handle both RMSD and distance-based CVs
         for definition in STATE_DEFINITIONS:
-            # Select atoms for distance calculation
-            atom_indices = []
-            for residue_sel in definition["residues"]:
-                selected = temp_traj.topology.select(residue_sel)
-                if len(selected) > 0:
-                    atom_indices.extend(selected)
-            
-            if len(atom_indices) < 2:
-                continue
-                
-            # Calculate pairwise distances between selected atoms
-            distances = md.compute_distances(temp_traj, [[atom_indices[0], atom_indices[1]]])
-            min_distance = np.min(distances)
-            
-            # State B threshold varies by definition
-            target_distance = definition["state_b_threshold"].value_in_unit(nanometers)
-            distance_to_target = abs(min_distance - target_distance)
-            
-            # Keep track of the best (smallest) distance to any State B
-            best_distance_to_b = min(best_distance_to_b, distance_to_target)
+            try:
+                # New RMSD-based approach
+                if definition.get("type") == "rmsd":
+                    selection = definition["selection"]
+                    ref_b_path = definition["reference_structures"]["state_b"]
+                    state_b_thresh = definition["state_b_threshold"].value_in_unit(nanometers)
+                    
+                    # Load reference structure
+                    ref_b = md.load(ref_b_path)
+                    
+                    # Select atoms for RMSD
+                    atom_indices = temp_traj.topology.select(selection)
+                    
+                    # Compute RMSD to State B reference for all frames
+                    rmsd_values = md.rmsd(temp_traj, ref_b, atom_indices=atom_indices)
+                    min_rmsd_in_traj = np.min(rmsd_values)
+                    
+                    # Distance to State B threshold
+                    distance_to_target = abs(min_rmsd_in_traj - state_b_thresh)
+                    best_distance_to_b = min(best_distance_to_b, distance_to_target)
+                    
+                else:
+                    # Old distance-based approach (backwards compatibility)
+                    state_b_pair_selections = definition["residues"][1]
+                    state_b_thresh = definition["state_b_threshold"].value_in_unit(nanometers)
+
+                    atom_b1_idx = temp_traj.topology.select(state_b_pair_selections[0])[0]
+                    atom_b2_idx = temp_traj.topology.select(state_b_pair_selections[1])[0]
+                    atom_b_indices = np.array([[atom_b1_idx, atom_b2_idx]])
+                    
+                    distances = md.compute_distances(temp_traj, atom_b_indices)
+                    min_distance_in_traj = np.min(distances)
+                    
+                    distance_to_target = abs(min_distance_in_traj - state_b_thresh)
+                    best_distance_to_b = min(best_distance_to_b, distance_to_target)
+
+            except (IndexError, AttributeError) as e:
+                print(f"⚠️ Warning: Could not calculate distance for CV '{definition['name']}'. Error: {e}")
+                pass
         
         return best_distance_to_b
     
@@ -836,7 +847,18 @@ class AIMDRunner:
 
 if __name__ == "__main__":
     set_start_method("spawn", force=True)
-    initial_traj = str(DATA_DIR / "glp1r_active" / "trajectory.dcd")
+    
+    # Use initial trajectory from active state (B-to-A transitions)
+    # This provides a good starting path that connects the two states
+    initial_traj = str(MD_DIR / "initial_transition.dcd")
+    
+    # Check if trajectory exists, provide helpful error message
+    if not Path(initial_traj).exists():
+        print(f"ERROR: Initial trajectory not found: {initial_traj}", file=sys.stderr)
+        print("\nYou need to generate an initial transition trajectory first:", file=sys.stderr)
+        print(f"  1. Prepare the inactive system: python scripts/prepare_simulation.py --target glp1r_inactive --pdb GLP1R/6LN2_chainR.pdb", file=sys.stderr)
+        print(f"  2. Generate transition: python scripts/run_simulation.py --target glp1r_inactive --data-dir --heat --ns 1.0", file=sys.stderr)
+        sys.exit(1)
 
     # Dry-run option: perform preflight checks and exit successfully if they pass.
     if args.dry_run:
@@ -892,11 +914,6 @@ if __name__ == "__main__":
             print(f"Controlled run failed: {e}", file=sys.stderr)
             sys.exit(4)
 
-    if not Path(initial_traj).exists():
-        print(
-            "ERROR: Initial trajectory 'trajectory.dcd' not found.", file=sys.stderr
-        )
-        sys.exit(1)
-
+    # Start the AIMMD sampling
     runner = AIMDRunner(initial_traj)
     runner.run() 
